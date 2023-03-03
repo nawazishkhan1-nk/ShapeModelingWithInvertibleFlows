@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import torch
-import requests
+# import requests
 import pandas as pd
 from matplotlib import pyplot as plt
 

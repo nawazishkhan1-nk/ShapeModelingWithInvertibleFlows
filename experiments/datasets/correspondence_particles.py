@@ -1,5 +1,6 @@
 import numpy as np
 import logging
+import glob
 
 from .utils import ParticlesDataset
 
@@ -8,20 +9,20 @@ logger = logging.getLogger(__name__)
 
 class CorrespondenceParticlesBaseSimulator:
     def __init__(self):
-        self.latent_dim = 32
-        self.data_dim = 3072
+        self.latent_dimension = 32
+        self.data_dimension = 3072
 
     def is_image(self):
         return False
 
     def data_dim(self):
-        return self.data_dim
+        return self.data_dimension
 
     def full_data_dim(self):
         return np.prod(self.data_dim())
     
     def latent_dim(self):
-        return self.latent_dim
+        return self.latent_dimension
 
     def parameter_dim(self):
         raise NotImplementedError
@@ -29,13 +30,15 @@ class CorrespondenceParticlesBaseSimulator:
     def log_density(self, x, parameters=None):
         raise NotImplementedError
 
-    def load_dataset(self, dataset_dir, latent_dim=None):
-        x = np.load("{}/{}.npy".format(dataset_dir))
-        self.data_dim = x.shape[-1]
+    def load_dataset(self, dataset_dir, use_augmented_data=False, latent_dim=None):
+        file_ar = glob.glob(f'{dataset_dir}/*.npy') if not use_augmented_data else glob.glob(f'{dataset_dir}/aug/*.npy')
+        assert len(file_ar) > 0
+        x = np.load(file_ar[0])
+        self.data_dimension = x.shape[-1]
         if latent_dim is not None:
-            self.latent_dim = latent_dim
+            self.latent_dimension = latent_dim
         else:
-            self.latent_dim = x.shape[0]
+            self.latent_dimension = x.shape[0]
         return ParticlesDataset(x)
 
     def sample(self, n, parameters=None):
@@ -75,10 +78,10 @@ class CorrespondenceParticlesLoader(CorrespondenceParticlesBaseSimulator):
         return False
 
     def data_dim(self):
-        return self.data_dim
+        return self.data_dimension
 
     def latent_dim(self):
-        return self.latent_dim
+        return self.latent_dimension
 
     def parameter_dim(self):
         return None

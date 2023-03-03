@@ -37,6 +37,7 @@ def parse_args():
     )
     parser.add_argument("--dataset", type=str, default="spherical_gaussian", choices=SIMULATORS, help="Dataset: spherical_gaussian, power, lhc, lhc40d, lhc2d, and some others")
     parser.add_argument("-i", type=int, default=0, help="Run number")
+    parser.add_argument("--perturb_data", action="store_true", help="Use perturbed input data")
 
     # Dataset details
     parser.add_argument("--truelatentdim", type=int, default=2, help="True manifold dimensionality (for datasets where that is variable)")
@@ -282,7 +283,7 @@ if __name__ == "__main__":
 
     # Data
     simulator = load_simulator(args)
-    dataset = simulator.load_dataset(train=True, dataset_dir=args.dataset_dir)
+    dataset = simulator.load_dataset(dataset_dir=args.dataset_dir, use_augmented_data=args.perturb_data)
 
     # Model
     model = create_model(args, simulator)

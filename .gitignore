@@ -1,3 +1,5 @@
 figures/
 *.pdf
 data/
+__pycache__/
+*.pyc

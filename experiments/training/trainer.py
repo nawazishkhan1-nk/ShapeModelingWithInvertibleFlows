@@ -21,7 +21,7 @@ class NanException(Exception):
 class BaseTrainer(object):
     """ Training functionality shared between normal trainers and alternating trainers. """
 
-    def __init__(self, model, run_on_gpu=True, multi_gpu=True, double_precision=False):
+    def __init__(self, model, run_on_gpu=True, multi_gpu=False, double_precision=False):
         self.model = model
 
         self.run_on_gpu = run_on_gpu and torch.cuda.is_available()
