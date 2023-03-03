@@ -40,6 +40,7 @@ def parse_args():
     parser.add_argument("--dataset", type=str, default="spherical_gaussian", choices=SIMULATORS, help="Dataset: spherical_gaussian, power, lhc, lhc40d, lhc2d, and some others")
     parser.add_argument("-i", type=int, default=0, help="Run number")
     parser.add_argument("--perturb_data", action="store_true", help="Use perturbed input data")
+    parser.add_argument("--gpu_id", type=int, default=None, help="GPU id")
 
     parser.add_argument("--eval_model", action="store_true", help="Evaluate Model")
     # Dataset details
@@ -143,8 +144,8 @@ def train_manifold_flow_alternating(args, dataset, model, simulator):
 
     assert not args.specified
 
-    trainer1 = ForwardTrainer(model) if simulator.parameter_dim() is None else ConditionalForwardTrainer(model)
-    trainer2 = ForwardTrainer(model) if simulator.parameter_dim() is None else ConditionalForwardTrainer(model) if args.scandal is None else SCANDALForwardTrainer(model)
+    trainer1 = ForwardTrainer(model, gpu_id=args.gpu_id) if simulator.parameter_dim() is None else ConditionalForwardTrainer(model)
+    trainer2 = ForwardTrainer(model, gpu_id=args.gpu_id) if simulator.parameter_dim() is None else ConditionalForwardTrainer(model) if args.scandal is None else SCANDALForwardTrainer(model)
     metatrainer = AlternatingTrainer(model, trainer1, trainer2)
 
     meta_kwargs = {"dataset": dataset, "initial_lr": args.lr, "scheduler": optim.lr_scheduler.CosineAnnealingLR, "validation_split": args.validationsplit}
@@ -183,14 +184,14 @@ def train_manifold_flow_sequential(args, dataset, model, simulator):
     assert not args.specified
 
     if simulator.parameter_dim() is None:
-        trainer1 = ForwardTrainer(model)
-        trainer2 = ForwardTrainer(model)
+        trainer1 = ForwardTrainer(model, gpu_id=args.gpu_id)
+        trainer2 = ForwardTrainer(model, gpu_id=args.gpu_id)
     else:
-        trainer1 = ConditionalForwardTrainer(model)
+        trainer1 = ConditionalForwardTrainer(model, gpu_id=args.gpu_id)
         if args.scandal is None:
-            trainer2 = ConditionalForwardTrainer(model)
+            trainer2 = ConditionalForwardTrainer(model, gpu_id=args.gpu_id)
         else:
-            trainer2 = SCANDALForwardTrainer(model)
+            trainer2 = SCANDALForwardTrainer(model, gpu_id=args.gpu_id)
 
     common_kwargs, scandal_loss, scandal_label, scandal_weight = make_training_kwargs(args, dataset)
 

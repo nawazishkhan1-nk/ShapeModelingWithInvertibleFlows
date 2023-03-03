@@ -21,13 +21,16 @@ class NanException(Exception):
 class BaseTrainer(object):
     """ Training functionality shared between normal trainers and alternating trainers. """
 
-    def __init__(self, model, run_on_gpu=True, multi_gpu=False, double_precision=False):
+    def __init__(self, model, run_on_gpu=True, multi_gpu=False, double_precision=False, gpu_id=None):
         self.model = model
 
         self.run_on_gpu = run_on_gpu and torch.cuda.is_available()
         self.multi_gpu = self.run_on_gpu and multi_gpu and torch.cuda.device_count() > 1
 
-        self.device = torch.device("cuda" if self.run_on_gpu else "cpu")
+        if gpu_id is not None:
+            self.device = torch.device(f"cuda:{gpu_id}" if self.run_on_gpu else "cpu")
+        else:
+            self.device = torch.device("cuda" if self.run_on_gpu else "cpu")
         self.dtype = torch.double if double_precision else torch.float
         if self.run_on_gpu and double_precision:
             torch.set_default_tensor_type("torch.cuda.DoubleTensor")
@@ -47,8 +50,6 @@ class BaseTrainer(object):
             "double" if double_precision else "single",
         )
     
-    def set_gpu_id_explicit(self, gpu_id=0):
-        self.device = torch.device(f"cuda:{gpu_id}" if self.run_on_gpu else "cpu")
         
     def check_early_stopping(self, best_loss, best_model, best_epoch, loss, i_epoch, early_stopping_patience=None):
         try:
