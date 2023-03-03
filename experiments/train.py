@@ -264,18 +264,21 @@ def fix_act_norm_issue(model):
 
 def evaluate_model(model, eval_results_dir):
     model.eval()
-    samples = model.sample(n=100, orthogonal=False)
-    print(f'samples shape is {samples.shape}')
+    samples = model.sample(n=100, sample_orthogonal=False)
+    # print(f'samples shape is {samples.shape}')
 
-    samples_ = model.sample(n=10, orthogonal=True)
-    print(f'samples with orthogonal shape is {samples_.shape}')
+    samples_ = model.sample(n=100, sample_orthogonal=True)
+    # print(f'samples with orthogonal shape is {samples_.shape}')
 
     # Plot Reconstructions:
-    # plot_reconstructions(samples, eval_results_dir)
+    plot_reconstructions(samples, f"{eval_results_dir}/without_orthogonal/")
+    plot_reconstructions(samples_, f"{eval_results_dir}/with_orthogonal/")
 
 def plot_reconstructions(samples, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
     particles_dir = f'{out_dir}/particles/'
     os.makedirs(particles_dir, exist_ok=True)
+    samples = samples.detach().cpu().numpy()
     N = samples.shape[0]
     for i in range(0, N, 2):
         print(f'Sample {i}.... ')
@@ -330,7 +333,7 @@ if __name__ == "__main__":
         os.makedirs(eval_results_dir, exist_ok=True)
         logger.info("Evaluating model now !!!!!")
         evaluate_model(model, eval_results_dir)
-        exit
+        sys.exit()
     # Evaluate
 
     # Maybe load pretrained model
