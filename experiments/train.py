@@ -11,6 +11,7 @@ import copy
 from torch import optim
 import matplotlib.pyplot as plt
 import os
+import shutil
 
 sys.path.append("../")
 
@@ -144,8 +145,8 @@ def train_manifold_flow_alternating(args, dataset, model, simulator):
 
     assert not args.specified
 
-    trainer1 = ForwardTrainer(model, gpu_id=args.gpu_id) if simulator.parameter_dim() is None else ConditionalForwardTrainer(model)
-    trainer2 = ForwardTrainer(model, gpu_id=args.gpu_id) if simulator.parameter_dim() is None else ConditionalForwardTrainer(model) if args.scandal is None else SCANDALForwardTrainer(model)
+    trainer1 = ForwardTrainer(model, gpu_id=args.gpu_id) if simulator.parameter_dim() is None else ConditionalForwardTrainer(model, gpu_id=args.gpu_id)
+    trainer2 = ForwardTrainer(model, gpu_id=args.gpu_id) if simulator.parameter_dim() is None else ConditionalForwardTrainer(model, gpu_id=args.gpu_id) if args.scandal is None else SCANDALForwardTrainer(model, gpu_id=args.gpu_id)
     metatrainer = AlternatingTrainer(model, trainer1, trainer2)
 
     meta_kwargs = {"dataset": dataset, "initial_lr": args.lr, "scheduler": optim.lr_scheduler.CosineAnnealingLR, "validation_split": args.validationsplit}
@@ -295,9 +296,9 @@ def plot_reconstructions(samples, out_dir):
 
         ax = fig.add_subplot(1, 2, 2, projection='3d')
         ax.set_title(f"Sample {(i+1)%N}")
-        z_new_sample = samples[i, :]
+        z_new_sample = samples[(i+1)%N, :]
         z_new_sample = z_new_sample.reshape((-1, 3))
-        ax.scatter3D(z_new_sample[:, 0], z_new_sample[: , 1], z_new_sample[:, 2], color = "blue")
+        ax.scatter3D(z_new_sample[:, 0], z_new_sample[: , 1], z_new_sample[:, 2], color = "green")
         np.savetxt(f'{particles_dir}/sampling_z_{i}.particles', z_new_sample)
         plt.savefig(f'{out_dir}/plt_{i}_sampling.png')
 
@@ -324,14 +325,18 @@ if __name__ == "__main__":
 
     # Data
     simulator = load_simulator(args)
-    dataset = simulator.load_dataset(dataset_dir=args.dataset_dir, use_augmented_data=args.perturb_data)
+    dataset = simulator.load_dataset(dataset_dir=args.dataset_dir, use_augmented_data=args.perturb_data, latent_dim=args.modellatentdim)
 
     # Model
     model = create_model(args, simulator)
     if args.eval_model:
-        model.load_state_dict(torch.load(create_filename("model", None, args), map_location=torch.device("cuda:0")))
+        model_fn = create_filename("model", None, args)
+        if not os.path.exists(model_fn):
+            model_fn = create_filename("resume", None, args)
+        model.load_state_dict(torch.load(model_fn, map_location=torch.device(f"cuda:0")))
         eval_results_dir = "{}/experiments/data/eval_results/{}/".format(args.dir, args.modelname)
         os.makedirs(eval_results_dir, exist_ok=True)
+        shutil.copy2(args.c, eval_results_dir)
         logger.info("Evaluating model now !!!!!")
         evaluate_model(model, eval_results_dir)
         sys.exit()

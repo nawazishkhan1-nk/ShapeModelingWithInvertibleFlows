@@ -71,7 +71,7 @@ def timing(args):
         # Model
         model = create_model(args, context_features=None)
         if torch.cuda.is_available():
-            model = model.to(torch.device("cuda"))
+            model = model.to(torch.device("cuda:1"))
 
         # Time forward pass
         times = []
