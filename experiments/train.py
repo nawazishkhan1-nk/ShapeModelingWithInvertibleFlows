@@ -48,6 +48,7 @@ def parse_args():
     parser.add_argument("--specified", action="store_true", help="Prescribe manifold chart: FOM instead of M-flow")
     parser.add_argument("--outertransform", type=str, default="rq-coupling", help="Scalar base trf. for f: {affine | quadratic | rq}-{coupling | autoregressive}")
     parser.add_argument("--innertransform", type=str, default="rq-coupling", help="Scalar base trf. for h: {affine | quadratic | rq}-{coupling | autoregressive}")
+    # TODO: Try without permutation as well
     parser.add_argument("--lineartransform", type=str, default="permutation", help="Scalar linear trf: linear | permutation")
     parser.add_argument("--outerlayers", type=int, default=5, help="Number of transformations in f (not counting linear transformations)")
     parser.add_argument("--innerlayers", type=int, default=5, help="Number of transformations in h (not counting linear transformations)")
@@ -73,7 +74,11 @@ def parse_args():
     parser.add_argument("--sequential", action="store_true", help="Use sequential M/D training algorithm")
     parser.add_argument("--load", type=str, default=None, help="Model name to load rather than training from scratch, run is affixed automatically")
     parser.add_argument("--startepoch", type=int, default=0, help="Sets the first trained epoch for resuming partial training")
+    
+    # None
     parser.add_argument("--samplesize", type=int, default=None, help="If not None, number of samples used for training")
+    
+    # N epochs = 50
     parser.add_argument("--epochs", type=int, default=50, help="Maximum number of epochs")
     parser.add_argument("--subsets", type=int, default=1, help="Number of subsets per epoch in an alternating training")
     parser.add_argument("--batchsize", type=int, default=100, help="Batch size for everything except OT training")
@@ -85,8 +90,12 @@ def parse_args():
     parser.add_argument("--sinkhornfactor", type=float, default=10.0, help="Sinkhorn divergence multiplier in loss")
     parser.add_argument("--weightdecay", type=float, default=1.0e-4, help="Weight decay")
     parser.add_argument("--clip", type=float, default=1.0, help="Gradient norm clipping parameter")
+
+    # Unused
     parser.add_argument("--nopretraining", action="store_true", help="Skip pretraining in M-flow-S training")
     parser.add_argument("--noposttraining", action="store_true", help="Skip posttraining in M-flow-S training")
+    
+    # TODO: Change valdiation split
     parser.add_argument("--validationsplit", type=float, default=0.25, help="Fraction of train data used for early stopping")
     parser.add_argument("--scandal", type=float, default=None, help="Activates SCANDAL training and sets prefactor of score MSE in loss")
     parser.add_argument("--l1", action="store_true", help="Use smooth L1 loss rather than L2 (MSE) for reco error")
@@ -114,10 +123,10 @@ def make_training_kwargs(args, dataset):
         "seed": args.seed + args.i,
     }
     if args.weightdecay is not None:
-        kwargs["optimizer_kwargs"] = {"weight_decay": float(args.weightdecay)}
-    scandal_loss = [losses.score_mse] if args.scandal is not None else []
-    scandal_label = ["score MSE"] if args.scandal is not None else []
-    scandal_weight = [args.scandal] if args.scandal is not None else []
+        kwargs["optimizer_kwargs"] = {"weight_decay": float(args.weightdecay)} #None
+    scandal_loss = [losses.score_mse] if args.scandal is not None else [] # None
+    scandal_label = ["score MSE"] if args.scandal is not None else [] # None
+    scandal_weight = [args.scandal] if args.scandal is not None else [] # None
 
     return kwargs, scandal_loss, scandal_label, scandal_weight
 
@@ -179,6 +188,8 @@ def train_manifold_flow_sequential(args, dataset, model, simulator):
 
     callbacks1 = [callbacks.save_model_after_every_epoch(create_filename("checkpoint", "A", args)), callbacks.print_mf_latent_statistics(), callbacks.print_mf_weight_statistics()]
     callbacks2 = [callbacks.save_model_after_every_epoch(create_filename("checkpoint", "B", args)), callbacks.print_mf_latent_statistics(), callbacks.print_mf_weight_statistics()]
+    
+    # Not applicable
     if simulator.is_image():
         callbacks1.append(
             callbacks.plot_sample_images(
@@ -267,7 +278,7 @@ if __name__ == "__main__":
 
     # Data
     simulator = load_simulator(args)
-    dataset = simulator.load_dataset(train=True, dataset_dir=create_filename("dataset", None, args), limit_samplesize=args.samplesize, joint_score=args.scandal is not None)
+    dataset = simulator.load_dataset(train=True, dataset_dir="")
 
     # Model
     model = create_model(args, simulator)

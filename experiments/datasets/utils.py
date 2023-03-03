@@ -124,6 +124,22 @@ class LabelledImageDataset(Dataset):
     def __len__(self):
         return self.x.shape[0]
 
+class ParticlesDataset(Dataset):
+    def __init__(self, array, transform=None):
+        self.transform = transform
+        self.data = torch.from_numpy(array)
+
+    def __getitem__(self, index):
+        particles = self.data[index, ...]
+
+        if self.transform is not None:
+            particles = self.transform(img)
+
+        return particles, torch.tensor([0.0])
+
+    def __len__(self):
+        return self.data.shape[0]
+
 
 class UnlabelledImageDataset(Dataset):
     def __init__(self, array, transform=None):
