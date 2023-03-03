@@ -81,8 +81,11 @@ def parse_args():
     # N epochs = 50
     parser.add_argument("--epochs", type=int, default=50, help="Maximum number of epochs")
     parser.add_argument("--subsets", type=int, default=1, help="Number of subsets per epoch in an alternating training")
-    parser.add_argument("--batchsize", type=int, default=100, help="Batch size for everything except OT training")
+    parser.add_argument("--batchsize", type=int, default=20, help="Batch size for everything except OT training")
+    
+    # unused
     parser.add_argument("--genbatchsize", type=int, default=1000, help="Batch size for OT training")
+    
     parser.add_argument("--lr", type=float, default=1.0e-3, help="Initial learning rate")
     parser.add_argument("--msefactor", type=float, default=1000.0, help="Reco error multiplier in loss")
     parser.add_argument("--addnllfactor", type=float, default=0.1, help="Negative log likelihood multiplier in loss for M-flow-S training")
@@ -105,7 +108,8 @@ def parse_args():
 
     # Other settings
     parser.add_argument("-c", is_config_file=True, type=str, help="Config file path")
-    parser.add_argument("--dir", type=str, default="/scratch/jb6504/manifold-flow", help="Base directory of repo")
+    parser.add_argument("--dir", type=str, default="/home/sci/nawazish.khan/ShapeModelingWithInvertibleFlows/", help="Base directory of repo")
+    parser.add_argument("--dataset_dir", type=str, default="/home/sci/nawazish.khan/non-linear-ssm-experiments/supershapes/m_flow_experiments/", help="directory of data")
     parser.add_argument("--debug", action="store_true", help="Debug mode (more log output, additional callbacks)")
 
     args = parser.parse_args()
@@ -278,7 +282,7 @@ if __name__ == "__main__":
 
     # Data
     simulator = load_simulator(args)
-    dataset = simulator.load_dataset(train=True, dataset_dir="")
+    dataset = simulator.load_dataset(train=True, dataset_dir=args.dataset_dir)
 
     # Model
     model = create_model(args, simulator)
