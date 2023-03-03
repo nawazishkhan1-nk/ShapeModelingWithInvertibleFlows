@@ -9,6 +9,8 @@ import torch
 import configargparse
 import copy
 from torch import optim
+import matplotlib.pyplot as plt
+import os
 
 sys.path.append("../")
 
@@ -39,6 +41,7 @@ def parse_args():
     parser.add_argument("-i", type=int, default=0, help="Run number")
     parser.add_argument("--perturb_data", action="store_true", help="Use perturbed input data")
 
+    parser.add_argument("--eval_model", action="store_true", help="Evaluate Model")
     # Dataset details
     parser.add_argument("--truelatentdim", type=int, default=2, help="True manifold dimensionality (for datasets where that is variable)")
     parser.add_argument("--datadim", type=int, default=3, help="True data dimensionality (for datasets where that is variable)")
@@ -259,6 +262,40 @@ def fix_act_norm_issue(model):
     for _, submodel in model._modules.items():
         fix_act_norm_issue(submodel)
 
+def evaluate_model(model, eval_results_dir):
+    model.eval()
+    samples = model.sample(n=100, orthogonal=False)
+    print(f'samples shape is {samples.shape}')
+
+    samples_ = model.sample(n=10, orthogonal=True)
+    print(f'samples with orthogonal shape is {samples_.shape}')
+
+    # Plot Reconstructions:
+    # plot_reconstructions(samples, eval_results_dir)
+
+def plot_reconstructions(samples, out_dir):
+    particles_dir = f'{out_dir}/particles/'
+    os.makedirs(particles_dir, exist_ok=True)
+    N = samples.shape[0]
+    for i in range(0, N, 2):
+        print(f'Sample {i}.... ')
+        plt.clf()
+        fig = plt.figure(figsize=(25, 20))
+        fig.suptitle('Particle Systems')
+        ax = fig.add_subplot(1, 2, 1, projection='3d')
+        ax.set_title(f"Sample {i%N}")
+        z0_sample = samples[i, :]
+        z0_sample = z0_sample.reshape((-1, 3))
+        ax.scatter3D(z0_sample[:, 0], z0_sample[: , 1], z0_sample[:, 2], color = "green")
+        np.savetxt(f'{particles_dir}/sampling_z0_{i}.particles', z0_sample)
+
+        ax = fig.add_subplot(1, 2, 2, projection='3d')
+        ax.set_title(f"Sample {(i+1)%N}")
+        z_new_sample = samples[i, :]
+        z_new_sample = z_new_sample.reshape((-1, 3))
+        ax.scatter3D(z_new_sample[:, 0], z_new_sample[: , 1], z_new_sample[:, 2], color = "blue")
+        np.savetxt(f'{particles_dir}/sampling_z_{i}.particles', z_new_sample)
+        plt.savefig(f'{out_dir}/plt_{i}_sampling.png')
 
 if __name__ == "__main__":
     # Logger
@@ -287,6 +324,14 @@ if __name__ == "__main__":
 
     # Model
     model = create_model(args, simulator)
+    if args.eval_model:
+        model.load_state_dict(torch.load(create_filename("model", None, args), map_location=torch.device("cuda:0")))
+        eval_results_dir = "{}/experiments/data/eval_results/{}/".format(args.dir, args.modelname)
+        os.makedirs(eval_results_dir, exist_ok=True)
+        logger.info("Evaluating model now !!!!!")
+        evaluate_model(model, eval_results_dir)
+        exit
+    # Evaluate
 
     # Maybe load pretrained model
     if args.resume is not None:

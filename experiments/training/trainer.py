@@ -46,7 +46,10 @@ class BaseTrainer(object):
             "{} GPUS".format(torch.cuda.device_count()) if self.multi_gpu else "GPU" if self.run_on_gpu else "CPU",
             "double" if double_precision else "single",
         )
-
+    
+    def set_gpu_id_explicit(self, gpu_id=0):
+        self.device = torch.device(f"cuda:{gpu_id}" if self.run_on_gpu else "cpu")
+        
     def check_early_stopping(self, best_loss, best_model, best_epoch, loss, i_epoch, early_stopping_patience=None):
         try:
             loss_ = loss[0]
