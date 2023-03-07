@@ -9,8 +9,9 @@ logger = logging.getLogger(__name__)
 
 class CorrespondenceParticlesBaseSimulator:
     def __init__(self):
-        self.latent_dimension = 32
-        self.data_dimension = 3072
+        self.latent_dimension = 0
+        self.data_dimension = 0
+        self.scale_factor = 0
 
     def is_image(self):
         return False
@@ -30,16 +31,27 @@ class CorrespondenceParticlesBaseSimulator:
     def log_density(self, x, parameters=None):
         raise NotImplementedError
 
-    def load_dataset(self, dataset_dir, use_augmented_data=False, latent_dim=None):
+    def load_dataset(self, dataset_dir, use_augmented_data=False, latent_dim=None, scaledata=False):
         file_ar = glob.glob(f'{dataset_dir}/*.npy') if not use_augmented_data else glob.glob(f'{dataset_dir}/aug/*.npy')
         assert len(file_ar) > 0
         x = np.load(file_ar[0])
-        self.data_dimension = x.shape[-1]
+        if scaledata:
+            factor = max(np.abs(np.max(x)), np.abs(np.min(x)))
+            x = (1/factor) * x
+            with open(f'{dataset_dir}/scale_factor.txt', 'w') as f:
+                f.write(f'Scaling factor = {factor}\n')
+            print(f'Scaling done | x shape = {x.shape}')
+        self.data_dimension = int(x.shape[-1])
         if latent_dim is not None:
             self.latent_dimension = latent_dim
         else:
             self.latent_dimension = x.shape[0]
+        print(f'data dim = {self.data_dim()} latentdim = {self.latent_dim()} | scaling factor = {factor}')
+        self.scale_factor = factor
         return ParticlesDataset(x)
+    
+    def scaling_factor(self):
+        return self.scale_factor
 
     def sample(self, n, parameters=None):
         raise NotImplementedError

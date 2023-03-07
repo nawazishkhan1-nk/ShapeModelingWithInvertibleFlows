@@ -12,6 +12,10 @@ from torch import optim
 import matplotlib.pyplot as plt
 import os
 import shutil
+import seaborn as sns
+from sklearn.decomposition import PCA
+import warnings
+warnings.filterwarnings("ignore")
 
 sys.path.append("../")
 
@@ -19,7 +23,7 @@ from training import losses, callbacks
 from training import ForwardTrainer, ConditionalForwardTrainer, SCANDALForwardTrainer, AdversarialTrainer, ConditionalAdversarialTrainer, AlternatingTrainer
 
 from datasets import load_simulator, SIMULATORS
-from utils import create_filename, create_modelname, nat_to_bit_per_dim
+from utils import create_filename, create_modelname, nat_to_bit_per_dim, create_dataloader
 from architectures import create_model
 from architectures.create_model import ALGORITHMS
 from manifold_flow.transforms.normalization import ActNorm
@@ -41,6 +45,7 @@ def parse_args():
     parser.add_argument("--dataset", type=str, default="spherical_gaussian", choices=SIMULATORS, help="Dataset: spherical_gaussian, power, lhc, lhc40d, lhc2d, and some others")
     parser.add_argument("-i", type=int, default=0, help="Run number")
     parser.add_argument("--perturb_data", action="store_true", help="Use perturbed input data")
+    parser.add_argument("--scaledata", action="store_true", help="Scale input data")
     parser.add_argument("--gpu_id", type=int, default=None, help="GPU id")
 
     parser.add_argument("--eval_model", action="store_true", help="Evaluate Model")
@@ -115,7 +120,8 @@ def parse_args():
     # Other settings
     parser.add_argument("-c", is_config_file=True, type=str, help="Config file path")
     parser.add_argument("--dir", type=str, default="/home/sci/nawazish.khan/ShapeModelingWithInvertibleFlows/", help="Base directory of repo")
-    parser.add_argument("--dataset_dir", type=str, default="/home/sci/nawazish.khan/non-linear-ssm-experiments/supershapes/m_flow_experiments/", help="directory of data")
+    parser.add_argument("--dataset_dir", type=str, default="/home/sci/nawazish.khan/nls-data/supershapes/initial-particles-256", help="directory of data")
+    parser.add_argument("--scalefactor", type=int, default=-1, help="Sacling Factor of data")
     parser.add_argument("--debug", action="store_true", help="Debug mode (more log output, additional callbacks)")
 
     args = parser.parse_args()
@@ -178,6 +184,72 @@ def train_manifold_flow_alternating(args, dataset, model, simulator):
 
     return learning_curves
 
+def train_generative_adversarial_manifold_flow(args, dataset, model, simulator):
+    """ M-flow-OT training """
+
+    gen_trainer = AdversarialTrainer(model) if simulator.parameter_dim() is None else ConditionalAdversarialTrainer(model)
+    common_kwargs, scandal_loss, scandal_label, scandal_weight = make_training_kwargs(args, dataset)
+    common_kwargs["batch_size"] = args.genbatchsize
+
+    logger.info("Starting training GAMF: Sinkhorn-GAN")
+
+    callbacks_ = [callbacks.save_model_after_every_epoch(create_filename("checkpoint", None, args))]
+    if args.debug:
+        callbacks_.append(callbacks.print_mf_weight_statistics())
+
+    learning_curves_ = gen_trainer.train(
+        loss_functions=[losses.make_sinkhorn_divergence()],
+        loss_labels=["GED"],
+        loss_weights=[args.sinkhornfactor],
+        epochs=args.epochs,
+        callbacks=callbacks_,
+        compute_loss_variance=True,
+        initial_epoch=args.startepoch,
+        **common_kwargs,
+    )
+
+    learning_curves = np.vstack(learning_curves_).T
+    return learning_curves
+
+
+def train_generative_adversarial_manifold_flow_alternating(args, dataset, model, simulator):
+    """ M-flow-OTA training """
+
+    assert not args.specified
+
+    gen_trainer = AdversarialTrainer(model) if simulator.parameter_dim() is None else ConditionalAdversarialTrainer(model)
+    likelihood_trainer = ForwardTrainer(model) if simulator.parameter_dim() is None else ConditionalForwardTrainer(model) if args.scandal is None else SCANDALForwardTrainer(model)
+    metatrainer = AlternatingTrainer(model, gen_trainer, likelihood_trainer)
+
+    meta_kwargs = {"dataset": dataset, "initial_lr": args.lr, "scheduler": optim.lr_scheduler.CosineAnnealingLR, "validation_split": args.validationsplit}
+    if args.weightdecay is not None:
+        meta_kwargs["optimizer_kwargs"] = {"weight_decay": float(args.weightdecay)}
+    _, scandal_loss, scandal_label, scandal_weight = make_training_kwargs(args, dataset)
+
+    phase1_kwargs = {"clip_gradient": args.clip}
+    phase2_kwargs = {"forward_kwargs": {"mode": "mf-fixed-manifold"}, "clip_gradient": args.clip}
+
+    phase1_parameters = list(model.parameters())
+    phase2_parameters = list(model.inner_transform.parameters())
+
+    logger.info("Starting training GAMF, alternating between Sinkhorn divergence and log likelihood")
+    learning_curves_ = metatrainer.train(
+        loss_functions=[losses.make_sinkhorn_divergence(), losses.nll] + scandal_loss,
+        loss_function_trainers=[0, 1] + [1] if args.scandal is not None else [],
+        loss_labels=["GED", "NLL"] + scandal_label,
+        loss_weights=[args.sinkhornfactor, args.nllfactor * nat_to_bit_per_dim(args.modellatentdim)] + scandal_weight,
+        batch_sizes=[args.genbatchsize, args.batchsize],
+        epochs=args.epochs // 2,
+        parameters=[phase1_parameters, phase2_parameters],
+        callbacks=[callbacks.save_model_after_every_epoch(create_filename("checkpoint", None, args))],
+        trainer_kwargs=[phase1_kwargs, phase2_kwargs],
+        subsets=args.subsets,
+        subset_callbacks=[callbacks.print_mf_weight_statistics()] if args.debug else None,
+        **meta_kwargs,
+    )
+    learning_curves = np.vstack(learning_curves_).T
+
+    return learning_curves
 
 def train_manifold_flow_sequential(args, dataset, model, simulator):
     """ Sequential M-flow-M/D training """
@@ -251,6 +323,11 @@ def train_model(args, dataset, model, simulator):
             learning_curves = train_manifold_flow_alternating(args, dataset, model, simulator)
         elif args.sequential:
             learning_curves = train_manifold_flow_sequential(args, dataset, model, simulator)
+    elif args.algorithm == "gamf":
+        if args.alternate:
+            learning_curves = train_generative_adversarial_manifold_flow_alternating(args, dataset, model, simulator)
+        else:
+            learning_curves = train_generative_adversarial_manifold_flow(args, dataset, model, simulator)
     else:
         raise ValueError("Unknown algorithm %s", args.algorithm)
 
@@ -264,17 +341,106 @@ def fix_act_norm_issue(model):
     for _, submodel in model._modules.items():
         fix_act_norm_issue(submodel)
 
-def evaluate_model(model, eval_results_dir):
+def run_evaluation(model, dataset, device, eval_results_dir, args):
+    train_loader, val_loader = create_dataloader(dataset, args.validationsplit, args.batchsize)
     model.eval()
+    model.to(device)
+    
+    # 2. Generalization
+    print(f'Running Generalization')
+    recon_dir = f"{eval_results_dir}/inputs_and_reconstructions/"
+    os.makedirs(recon_dir, exist_ok=True)
+    generalization_errors = []
+    for i_batch, batch_data in enumerate(val_loader):
+        x = batch_data[0].to(device, torch.float)
+        print(f' input vector shape {x.shape} device = {x.get_device()}')
+        x_recon, log_prob, u = model(x, mode="mf-fixed-manifold")
+        print(f' Reconstructed vector shape {x_recon.shape} | log_prob shape {log_prob.shape} | u shape {u.shape}')
+        gen = torch.linalg.norm((x_recon-x)).item()
+        generalization_errors.append(gen)
+        print(f'GEN = {gen}')
+        np.save(f"{recon_dir}/x_batch_{i_batch}.npy", x.detach().numpy())
+        np.save(f"{recon_dir}/x_recon_batch_{i_batch}.npy", x_recon.detach().numpy())
+        np.save(f"{recon_dir}/log_prob_batch_{i_batch}.npy", log_prob.detach().numpy())
+        np.save(f"{recon_dir}/u_batch_{i_batch}.npy", u.detach().numpy())
+
+
+    gen_val = np.mean(np.array(generalization_errors))
+    print(f"mean gen = {gen_val}")
+
+    # 1. Specificity
+    print(f'Running Specificty')
     samples = model.sample(n=100, sample_orthogonal=False)
-    # print(f'samples shape is {samples.shape}')
-
     samples_ = model.sample(n=100, sample_orthogonal=True)
-    # print(f'samples with orthogonal shape is {samples_.shape}')
+    # SCALE_FACTOR = 399.18096923828125
+    SCALE_FACTOR = args.scalefactor
+    assert SCALE_FACTOR > 0
+    plot_reconstructions( SCALE_FACTOR * samples, f"{eval_results_dir}/without_orthogonal/")
+    plot_reconstructions( SCALE_FACTOR * samples_, f"{eval_results_dir}/with_orthogonal/")
 
-    # Plot Reconstructions:
-    plot_reconstructions(samples, f"{eval_results_dir}/without_orthogonal/")
-    plot_reconstructions(samples_, f"{eval_results_dir}/with_orthogonal/")
+    x_ar = []
+    for i_batch, batch_data in enumerate(train_loader):
+        x_batch = batch_data[0]
+        x_ar.append(x_batch)
+
+    x_all = torch.vstack(x_ar)
+    N = x_all.shape[0]
+    print("Sampling")
+    # samples_for_kde = model.sample(n=N, sample_orthogonal=False)
+    # np.save(f'{eval_results_dir}/samples.npy', samples_for_kde.detach().numpy())
+    # np.save(f'{eval_results_dir}/input_z.npy', x_all.detach().numpy())
+
+    # plot_kde_plots(samples_for_kde, x_all, eval_results_dir)
+
+    specificity_errors = []
+    for i in range(100):
+        x_sampled = samples[i][None, ...]
+        x_sampled = x_sampled.repeat_interleave(N, dim=0)
+        errors = torch.mean(torch.sqrt((x_all - x_sampled)**2), dim=0)
+        spec = torch.min(errors).item()
+        print(f' SPEC without orthogonal = {spec}')
+        specificity_errors.append(spec)
+    spec_val1 = SCALE_FACTOR * np.mean(np.array(specificity_errors))
+
+    specificity_errors_ = []
+    for i in range(100):
+        x_sampled = samples_[i][None, ...]
+        x_sampled = x_sampled.repeat_interleave(N, dim=0)
+        errors = torch.mean(torch.sqrt((x_all - x_sampled)**2), dim=0)
+        spec = torch.min(errors).item()
+        print(f' SPEC with orthogonal = {spec}')
+        specificity_errors_.append(spec)
+    spec_val2 = SCALE_FACTOR * np.mean(np.array(specificity_errors_))
+
+    with open(f'{eval_results_dir}/metrics.txt', 'w') as f:
+        f.write(f'Generalization = {gen_val} \n Sepecificity w/o orthogonal sampling = {spec_val1} \n Specifictity with orthogonal sampling = {spec_val2} \n Scale Factor = {SCALE_FACTOR}')
+    return gen_val, (spec_val1, spec_val2)
+
+
+def plot_kde_plots(sampled_x, x, out_dir):
+    N = sampled_x.shape[0]
+    assert sampled_x.shape[0] == x.shape[0] and sampled_x.shape[1] == x.shape[1]
+    # PCA
+    sampled_x_reduced = PCA(n_components=2).fit(sampled_x.detach().numpy())
+    sampled_x_reduced = sampled_x_reduced.transform(sampled_x.detach().numpy())
+
+    x_reduced = PCA(n_components=2).fit(x.detach().numpy())
+    x_reduced = x_reduced.transform(x.detach().numpy())
+
+    plt.clf()
+    fig, axes = plt.subplots()
+    sns.kdeplot(x=x_reduced[:, 0], y=x_reduced[:, 1], cmap='Reds', shade=True, ax = axes)
+    # axes.scatter(x_reduced[:, 0], x_reduced[:, 1], edgecolor='k', alpha=0.4)
+    axes.set_title(r"Input $Z$ ----> ")
+    plt.savefig(f'{out_dir}/plt_densities_input_Z.png')
+
+    plt.clf()
+    fig, axes = plt.subplots()
+    sns.kdeplot(x=sampled_x_reduced[:, 0], y=sampled_x_reduced[:, 1], shade=True, ax = axes)
+    # axes.scatter(sampled_x_reduced[:, 0], sampled_x_reduced[:, 1], edgecolor='k', alpha=0.4)
+    axes.set_title(r"Sampled $Z$")
+    plt.savefig(f'{out_dir}/plt_densities_sampled_Z.png')
+
 
 def plot_reconstructions(samples, out_dir):
     os.makedirs(out_dir, exist_ok=True)
@@ -283,7 +449,7 @@ def plot_reconstructions(samples, out_dir):
     samples = samples.detach().cpu().numpy()
     N = samples.shape[0]
     for i in range(0, N, 2):
-        print(f'Sample {i}.... ')
+        # print(f'Sample {i}.... ')
         plt.clf()
         fig = plt.figure(figsize=(25, 20))
         fig.suptitle('Particle Systems')
@@ -304,6 +470,7 @@ def plot_reconstructions(samples, out_dir):
 
 if __name__ == "__main__":
     # Logger
+    train_done = False
     args = parse_args()
     logging.basicConfig(format="%(asctime)-5.5s %(name)-20.20s %(levelname)-7.7s %(message)s", datefmt="%H:%M", level=logging.DEBUG if args.debug else logging.INFO)
     logger.info("Hi!")
@@ -325,23 +492,11 @@ if __name__ == "__main__":
 
     # Data
     simulator = load_simulator(args)
-    dataset = simulator.load_dataset(dataset_dir=args.dataset_dir, use_augmented_data=args.perturb_data, latent_dim=args.modellatentdim)
-
+    dataset = simulator.load_dataset(dataset_dir=args.dataset_dir, use_augmented_data=args.perturb_data, latent_dim=args.modellatentdim, scaledata=args.scaledata)
+    args.datadim = simulator.data_dim()
+    args.scalefactor = simulator.scaling_factor()
     # Model
     model = create_model(args, simulator)
-    if args.eval_model:
-        model_fn = create_filename("model", None, args)
-        if not os.path.exists(model_fn):
-            model_fn = create_filename("resume", None, args)
-        model.load_state_dict(torch.load(model_fn, map_location=torch.device(f"cuda:0")))
-        eval_results_dir = "{}/experiments/data/eval_results/{}/".format(args.dir, args.modelname)
-        os.makedirs(eval_results_dir, exist_ok=True)
-        shutil.copy2(args.c, eval_results_dir)
-        logger.info("Evaluating model now !!!!!")
-        evaluate_model(model, eval_results_dir)
-        sys.exit()
-    # Evaluate
-
     # Maybe load pretrained model
     if args.resume is not None:
         model.load_state_dict(torch.load(resume_filename, map_location=torch.device("cpu")))
@@ -355,12 +510,26 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(create_filename("model", None, args_), map_location=torch.device("cpu")))
         fix_act_norm_issue(model)
 
-    # Train and save
-    learning_curves = train_model(args, dataset, model, simulator)
+    if not args.eval_model:
+        # Train and save
+        learning_curves = train_model(args, dataset, model, simulator)
 
-    # Save
-    logger.info("Saving model")
-    torch.save(model.state_dict(), create_filename("model", None, args))
-    np.save(create_filename("learning_curve", None, args), learning_curves)
-
-    logger.info("All done! Have a nice day!")
+        # Save
+        logger.info("Saving model")
+        torch.save(model.state_dict(), create_filename("model", None, args))
+        np.save(create_filename("learning_curve", None, args), learning_curves)
+        train_done = True
+        logger.info("All Training done! Have a nice day!")
+    if args.eval_model:
+        eval_dev = torch.device('cpu')
+        if args.eval_model:
+            model_fn = create_filename("model", None, args)
+            if not os.path.exists(model_fn):
+                model_fn = create_filename("resume", None, args)
+            model.load_state_dict(torch.load(model_fn, map_location=eval_dev))
+        eval_results_dir = "{}/experiments/data/eval_results/{}/".format(args.dir, args.modelname)
+        os.makedirs(eval_results_dir, exist_ok=True)
+        shutil.copy2(args.c, eval_results_dir)
+        logger.info("Evaluating model now !!!!!")
+        run_evaluation(model, dataset, eval_dev,eval_results_dir, args )
+        logger.info("All Eval done! Have a nice day!")

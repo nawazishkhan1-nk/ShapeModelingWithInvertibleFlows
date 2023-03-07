@@ -13,5 +13,5 @@ def load_simulator(args):
     else:
         raise ValueError("Unknown dataset {}".format(args.dataset))
 
-    args.datadim = simulator.data_dim()
+    # args.datadim = simulator.data_dim()
     return simulator

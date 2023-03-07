@@ -3,6 +3,9 @@ import logging
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from torch.utils.data import DataLoader
+from torch.utils.data.sampler import SubsetRandomSampler
+
 
 logger = logging.getLogger(__name__)
 
@@ -106,3 +109,49 @@ def array_to_image_folder(data, folder):
         if i == 0:
             logger.debug("x: %s", x)
         plt.imsave(f"{folder}/{i}.jpg", x)
+
+
+def create_dataloader(dataset, validation_split, batch_size, n_workers=4):
+        logger.debug("Setting up dataloaders with %s workers", n_workers)
+
+        if validation_split is None or validation_split <= 0.0:
+            train_loader = DataLoader(
+                dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                # pin_memory=self.run_on_gpu,
+                num_workers=n_workers,
+            )
+            val_loader = None
+
+        else:
+            assert 0.0 < validation_split < 1.0, "Wrong validation split: {}".format(validation_split)
+
+            n_samples = len(dataset)
+            indices = list(range(n_samples))
+            split = int(np.floor(validation_split * n_samples))
+            np.random.shuffle(indices)
+            train_idx, valid_idx = indices[split:], indices[:split]
+
+            logger.debug("Training partition indices: %s...", train_idx[:10])
+            logger.debug("Validation partition indices: %s...", valid_idx[:10])
+
+            train_sampler = SubsetRandomSampler(train_idx)
+            val_sampler = SubsetRandomSampler(valid_idx)
+
+            train_loader = DataLoader(
+                dataset,
+                sampler=train_sampler,
+                batch_size=batch_size,
+                # pin_memory=self.run_on_gpu,
+                num_workers=n_workers,
+            )
+            val_loader = DataLoader(
+                dataset,
+                sampler=val_sampler,
+                batch_size=batch_size,
+                # pin_memory=self.run_on_gpu,
+                num_workers=n_workers,
+            )
+
+        return train_loader, val_loader
