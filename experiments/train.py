@@ -49,6 +49,8 @@ def parse_args():
     parser.add_argument("--gpu_id", type=int, default=None, help="GPU id")
 
     parser.add_argument("--eval_model", action="store_true", help="Evaluate Model")
+    parser.add_argument("--serialize_model", action="store_true", help="Serialize Model to TorchScript")
+
     # Dataset details
     parser.add_argument("--truelatentdim", type=int, default=2, help="True manifold dimensionality (for datasets where that is variable)")
     parser.add_argument("--datadim", type=int, default=3, help="True data dimensionality (for datasets where that is variable)")
@@ -510,8 +512,9 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(create_filename("model", None, args_), map_location=torch.device("cpu")))
         fix_act_norm_issue(model)
 
-    if not args.eval_model:
+    if (not args.eval_model) and (not args.serialize_model):
         # Train and save
+        logger.info("Start Training model")
         learning_curves = train_model(args, dataset, model, simulator)
 
         # Save
@@ -533,3 +536,20 @@ if __name__ == "__main__":
         logger.info("Evaluating model now !!!!!")
         run_evaluation(model, dataset, eval_dev,eval_results_dir, args )
         logger.info("All Eval done! Have a nice day!")
+
+    if args.serialize_model:
+        eval_dev = torch.device('cpu')
+
+        model_fn = create_filename("model", None, args)
+        if not os.path.exists(model_fn):
+            model_fn = create_filename("resume", None, args)
+        model.load_state_dict(torch.load(model_fn, map_location=eval_dev))
+        logger.info("Model Loaded, Running Serialization !!!!!")
+        eval_results_dir = "{}/experiments/data/eval_results/{}/".format(args.dir, args.modelname)
+        os.makedirs(eval_results_dir, exist_ok=True)
+        model.eval()
+        sm = torch.jit.script(model)
+        serialized_model_path = f"{eval_results_dir}/serialized_model.pt"
+        torch.jit.save(sm, serialized_model_path)
+        logger.info(f'******************** Serialized Module saved ************************')
+        logger.info("Serialization done! Have a nice day!")
