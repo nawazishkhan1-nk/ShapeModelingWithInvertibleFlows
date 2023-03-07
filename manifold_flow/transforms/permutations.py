@@ -15,7 +15,7 @@ class Permutation(transforms.Transform):
     """Permutes inputs on a given dimension using a given permutation."""
 
     def __init__(self, permutation, dim=1):
-        if permutation.ndimension() != 1:
+        if permutation.dim() != 1:
             raise ValueError("Permutation must be a 1D tensor.")
         if not various.is_positive_int(dim):
             raise ValueError("dim must be a positive integer.")

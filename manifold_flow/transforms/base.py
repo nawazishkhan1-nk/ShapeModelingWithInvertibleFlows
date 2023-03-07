@@ -103,7 +103,7 @@ class MultiscaleCompositeTransform(Transform):
             num_transforms: int, total number of transforms to be added.
             split_dim: dimension along which to split.
         """
-        if not various.is_positive_int(split_dim):
+        if not (isinstance(split_dim, int) and split_dim > 0):
             raise TypeError("Split dimension must be a positive integer.")
 
         super().__init__()

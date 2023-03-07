@@ -1,6 +1,7 @@
 import os
 import logging
 import numpy as np
+import math
 import torch
 from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader
@@ -93,13 +94,13 @@ def create_modelname(args):
 
 def nat_to_bit_per_dim(dim):
     if isinstance(dim, (tuple, list, np.ndarray)):
-        dim = np.product(dim)
-    logger.debug("Nat to bit per dim: factor %s", 1.0 / (np.log(2) * dim))
-    return 1.0 / (np.log(2) * dim)
+        dim = math.prod(dim)
+    logger.debug("Nat to bit per dim: factor %s", 1.0 / (math.log(2) * dim))
+    return 1.0 / (math.log(2) * dim)
 
 
-def sum_except_batch(x, num_batch_dims=1):
-    reduce_dims = list(range(num_batch_dims, x.ndimension()))
+def sum_except_batch(x: torch.Tensor, num_batch_dims: int=1):
+    reduce_dims = list(range(num_batch_dims, x.dim()))
     return torch.sum(x, dim=reduce_dims)
 
 
@@ -129,7 +130,7 @@ def create_dataloader(dataset, validation_split, batch_size, n_workers=4):
 
             n_samples = len(dataset)
             indices = list(range(n_samples))
-            split = int(np.floor(validation_split * n_samples))
+            split = int(math.floor(validation_split * n_samples))
             np.random.shuffle(indices)
             train_idx, valid_idx = indices[split:], indices[:split]
 

@@ -3,109 +3,33 @@ import logging
 import torch
 from torch import nn
 from torch.nn import init
-import numpy as np
+import math
 import warnings
-
+from manifold_flow import nn as nn_
 
 from manifold_flow.utils import various
 from manifold_flow.transforms import splines
 
-
+from typing import List, Tuple, Optional
 logger = logging.getLogger(__name__)
-
-
-def _share_across_batch(params, batch_size):
-    return params[None, ...].expand(batch_size, *params.shape)
-
-
-class PiecewiseRationalQuadraticCDF(nn.Module):
-    def __init__(
-        self,
-        shape,
-        num_bins=10,
-        tails=None,
-        tail_bound=1.0,
-        identity_init=False,
-        min_bin_width=splines.rational_quadratic.DEFAULT_MIN_BIN_WIDTH,
-        min_bin_height=splines.rational_quadratic.DEFAULT_MIN_BIN_HEIGHT,
-        min_derivative=splines.rational_quadratic.DEFAULT_MIN_DERIVATIVE,
-    ):
-        super().__init__()
-
-        self.min_bin_width = min_bin_width
-        self.min_bin_height = min_bin_height
-        self.min_derivative = min_derivative
-
-        self.tail_bound = tail_bound
-        self.tails = tails
-
-        if identity_init:
-            self.unnormalized_widths = nn.Parameter(torch.zeros(*shape, num_bins))
-            self.unnormalized_heights = nn.Parameter(torch.zeros(*shape, num_bins))
-
-            constant = np.log(np.exp(1 - min_derivative) - 1)
-            num_derivatives = (num_bins - 1) if self.tails == "linear" else (num_bins + 1)
-            self.unnormalized_derivatives = nn.Parameter(constant * torch.ones(*shape, num_derivatives))
-        else:
-            self.unnormalized_widths = nn.Parameter(torch.rand(*shape, num_bins))
-            self.unnormalized_heights = nn.Parameter(torch.rand(*shape, num_bins))
-
-            num_derivatives = (num_bins - 1) if self.tails == "linear" else (num_bins + 1)
-            self.unnormalized_derivatives = nn.Parameter(torch.rand(*shape, num_derivatives))
-
-    def _spline(self, inputs, inverse=False):
-        batch_size = inputs.shape[0]
-
-        unnormalized_widths = _share_across_batch(self.unnormalized_widths, batch_size)
-        unnormalized_heights = _share_across_batch(self.unnormalized_heights, batch_size)
-        unnormalized_derivatives = _share_across_batch(self.unnormalized_derivatives, batch_size)
-
-        if self.tails is None:
-            spline_fn = splines.rational_quadratic_spline
-            spline_kwargs = {}
-        else:
-            spline_fn = splines.unconstrained_rational_quadratic_spline
-            spline_kwargs = {"tails": self.tails, "tail_bound": self.tail_bound}
-
-        outputs, logabsdet = spline_fn(
-            inputs=inputs,
-            unnormalized_widths=unnormalized_widths,
-            unnormalized_heights=unnormalized_heights,
-            unnormalized_derivatives=unnormalized_derivatives,
-            inverse=inverse,
-            min_bin_width=self.min_bin_width,
-            min_bin_height=self.min_bin_height,
-            min_derivative=self.min_derivative,
-            **spline_kwargs
-        )
-
-        return outputs, various.sum_except_batch(logabsdet)
-
-    def forward(self, inputs, context=None, full_jacobian=False):
-        if full_jacobian:
-            raise NotImplementedError
-
-        return self._spline(inputs, inverse=False)
-
-    def inverse(self, inputs, context=None, full_jacobian=False):
-        if full_jacobian:
-            raise NotImplementedError
-
-        return self._spline(inputs, inverse=True)
 
 class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
     def __init__(
         self,
-        mask,
-        transform_net_create_fn,
-        num_bins=10,
-        tails=None,
-        tail_bound=1.0,
-        apply_unconditional_transform=False,
-        img_shape=None,
-        min_bin_width=splines.rational_quadratic.DEFAULT_MIN_BIN_WIDTH,
-        min_bin_height=splines.rational_quadratic.DEFAULT_MIN_BIN_HEIGHT,
-        min_derivative=splines.rational_quadratic.DEFAULT_MIN_DERIVATIVE,
+        mask: torch.Tensor,
+        hidden_features: int, # ResNet params
+        context_features: int,
+        num_blocks: int,
+        dropout_probability: float,
+        use_batch_norm: bool, # end resnet params
+        num_bins: int=10,
+        tails: str=None,
+        tail_bound: float=1.0,
+        apply_unconditional_transform: bool=False,
+        img_shape: List[int]=None,
+        min_bin_width: float=splines.rational_quadratic.DEFAULT_MIN_BIN_WIDTH,
+        min_bin_height: float=splines.rational_quadratic.DEFAULT_MIN_BIN_HEIGHT,
+        min_derivative: float=splines.rational_quadratic.DEFAULT_MIN_DERIVATIVE,
     ):
         super().__init__()
         self.num_bins = num_bins
@@ -115,18 +39,8 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
         self.tails = tails
         self.tail_bound = tail_bound
 
-        if apply_unconditional_transform:
-            unconditional_transform = lambda features: PiecewiseRationalQuadraticCDF(
-                shape=[features] + (img_shape if img_shape else []),
-                num_bins=num_bins,
-                tails=tails,
-                tail_bound=tail_bound,
-                min_bin_width=min_bin_width,
-                min_bin_height=min_bin_height,
-                min_derivative=min_derivative,
-            )
-        else:
-            unconditional_transform = None
+
+        unconditional_transform = None # Always False
 
         # Init from cupling transform
         mask = torch.as_tensor(mask)
@@ -141,24 +55,35 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
         self.register_buffer("identity_features", features_vector.masked_select(mask <= 0))
         self.register_buffer("transform_features", features_vector.masked_select(mask > 0))
 
-        assert self.num_identity_features + self.num_transform_features == self.features
+        assert (len(self.identity_features)) + (len(self.transform_features))== self.features
 
-        self.transform_net = transform_net_create_fn(self.num_identity_features, self.num_transform_features * self._transform_dim_multiplier())
+        in_features_for_transform_net = len(self.identity_features)
+        out_features_for_transorm_net = len(self.transform_features) * self._transform_dim_multiplier()
+        self.transform_net = nn_.ResidualNet(
+                                            in_features=in_features_for_transform_net,
+                                            out_features=out_features_for_transorm_net,
+                                            hidden_features=hidden_features,
+                                            context_features=context_features,
+                                            num_blocks=num_blocks,
+                                            dropout_probability=dropout_probability,
+                                            use_batch_norm=use_batch_norm,
+                                        )
+
+
 
         if unconditional_transform is None:
             self.unconditional_transform = None
-        else:
-            self.unconditional_transform = unconditional_transform(features=self.num_identity_features)
 
-    @property
-    def num_identity_features(self):
-        return len(self.identity_features)
+    # @property
+    # def num_identity_features(self):
+    #     return len(self.identity_features)
 
-    @property
-    def num_transform_features(self):
-        return len(self.transform_features)
-
-    def forward(self, inputs, context=None, full_jacobian=False):
+    # @property
+    # def num_transform_features(self):
+    #     return len(self.transform_features)
+    
+    @torch.jit.export
+    def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
         if inputs.dim() not in [2, 4]:
             raise ValueError("Inputs must be a 2D or a 4D tensor.")
 
@@ -185,9 +110,9 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
 
             jacobian_transform = various.batch_jacobian(transform_split, inputs)
 
-            if self.unconditional_transform is not None:
-                identity_split, jacobian_identity = self.unconditional_transform(identity_split, context)
-                raise NotImplementedError()
+            # if self.unconditional_transform is not None:
+            #     # identity_split, jacobian_identity = self.unconditional_transform(identity_split, context)
+            #     raise NotImplementedError()
             # else:
             #     jacobian_identity = torch.eye(self.num_identity_features).unsqueeze(0)  # (1, n, n)
             #     logger.debug("Identity Jacobian: %s", jacobian_identity[0])
@@ -212,9 +137,9 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
 
             transform_split, logabsdet = self._coupling_transform_forward(inputs=transform_split, transform_params=transform_params)
 
-            if self.unconditional_transform is not None:
-                identity_split, logabsdet_identity = self.unconditional_transform(identity_split, context)
-                logabsdet += logabsdet_identity
+            # if self.unconditional_transform is not None:
+            #     identity_split, logabsdet_identity = self.unconditional_transform(identity_split, context)
+            #     logabsdet += logabsdet_identity
 
             outputs = torch.empty_like(inputs)
             outputs[:, self.identity_features, ...] = identity_split
@@ -231,7 +156,8 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
 
             return outputs, logabsdet
 
-    def inverse(self, inputs, context=None, full_jacobian=False):
+    @torch.jit.export
+    def inverse(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
         if inputs.dim() not in [2, 4]:
             raise ValueError("Inputs must be a 2D or a 4D tensor.")
 
@@ -244,13 +170,13 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
         if full_jacobian:
             # timer.timer(start="Jacobian inverse coupling transform")
 
-            if self.unconditional_transform is not None:
-                # identity_split_after_unconditional_transform, jacobian_identity = self.unconditional_transform.inverse(
-                #     identity_split, context, full_jacobian=True
-                # )
-                raise NotImplementedError()
-            else:
-                identity_split_after_unconditional_transform = identity_split
+            # if self.unconditional_transform is not None:
+            #     # identity_split_after_unconditional_transform, jacobian_identity = self.unconditional_transform.inverse(
+            #     #     identity_split, context, full_jacobian=True
+            #     # )
+            #     raise NotImplementedError()
+            # else:
+            identity_split_after_unconditional_transform = identity_split
             #     jacobian_identity = torch.eye(self.num_identity_features).unsqueeze(0)  # (1, n, n)
 
             transform_params = self.transform_net(identity_split, context)
@@ -274,8 +200,8 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
 
         else:
             logabsdet = 0.0
-            if self.unconditional_transform is not None:
-                identity_split, logabsdet = self.unconditional_transform.inverse(identity_split, context)
+            # if self.unconditional_transform is not None:
+            #     identity_split, logabsdet = self.unconditional_transform.inverse(identity_split, context)
 
             transform_params = self.transform_net(identity_split, context)
             transform_split, logabsdet_split = self._coupling_transform_inverse(inputs=transform_split, transform_params=transform_params)
@@ -287,13 +213,13 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
 
             return outputs, logabsdet
 
-    def _coupling_transform_forward(self, inputs, transform_params, full_jacobian=False):
+    def _coupling_transform_forward(self, inputs: torch.Tensor, transform_params: torch.Tensor, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
         return self._coupling_transform(inputs, transform_params, inverse=False, full_jacobian=full_jacobian)
 
-    def _coupling_transform_inverse(self, inputs, transform_params, full_jacobian=False):
+    def _coupling_transform_inverse(self, inputs: torch.Tensor, transform_params: torch.Tensor, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
         return self._coupling_transform(inputs, transform_params, inverse=True, full_jacobian=full_jacobian)
 
-    def _coupling_transform(self, inputs, transform_params, inverse=False, full_jacobian=False):
+    def _coupling_transform(self, inputs: torch.Tensor, transform_params: torch.Tensor, inverse: bool=False, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
         if inputs.dim() == 4:
             b, c, h, w = inputs.shape
             # For images, reshape transform_params from Bx(C*?)xHxW to BxCxHxWx?
@@ -310,42 +236,53 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
             outputs, logabsdet = self._piecewise_cdf(inputs, transform_params, inverse)
             return outputs, various.sum_except_batch(logabsdet)
 
-
-    def _piecewise_cdf(self, inputs, transform_params, inverse=False, full_jacobian=False):
+    def _piecewise_cdf(self, inputs: torch.Tensor, transform_params: torch.Tensor, inverse: bool=False, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
         unnormalized_widths = transform_params[..., : self.num_bins]
         unnormalized_heights = transform_params[..., self.num_bins : 2 * self.num_bins]
         unnormalized_derivatives = transform_params[..., 2 * self.num_bins :]
 
         if hasattr(self.transform_net, "hidden_features"):
-            unnormalized_widths /= np.sqrt(self.transform_net.hidden_features)
-            unnormalized_heights /= np.sqrt(self.transform_net.hidden_features)
+            unnormalized_widths /= math.sqrt(self.transform_net.hidden_features)
+            unnormalized_heights /= math.sqrt(self.transform_net.hidden_features)
         elif hasattr(self.transform_net, "hidden_channels"):
-            unnormalized_widths /= np.sqrt(self.transform_net.hidden_channels)
-            unnormalized_heights /= np.sqrt(self.transform_net.hidden_channels)
+            unnormalized_widths /= math.sqrt(self.transform_net.hidden_channels)
+            unnormalized_heights /= math.sqrt(self.transform_net.hidden_channels)
         else:
             warnings.warn("Inputs to the softmax are not scaled down: initialization might be bad.")
 
         if self.tails is None:
-            spline_fn = splines.rational_quadratic_spline
-            spline_kwargs = {}
+            # spline_fn = splines.rational_quadratic_spline
+            # spline_kwargs = {}
+            return splines.rational_quadratic_spline(
+                                                    inputs=inputs,
+                                                    unnormalized_widths=unnormalized_widths,
+                                                    unnormalized_heights=unnormalized_heights,
+                                                    unnormalized_derivatives=unnormalized_derivatives,
+                                                    inverse=inverse,
+                                                    min_bin_width=self.min_bin_width,
+                                                    min_bin_height=self.min_bin_height,
+                                                    min_derivative=self.min_derivative,
+                                                    full_jacobian=full_jacobian
+                                                    )
+
         else:
-            spline_fn = splines.unconstrained_rational_quadratic_spline
-            spline_kwargs = {"tails": self.tails, "tail_bound": self.tail_bound}
+            # spline_fn = splines.unconstrained_rational_quadratic_spline
+            # spline_kwargs = {"tails": self.tails, "tail_bound": self.tail_bound}
+            return splines.unconstrained_rational_quadratic_spline(
+                                                                    inputs=inputs,
+                                                                    unnormalized_widths=unnormalized_widths,
+                                                                    unnormalized_heights=unnormalized_heights,
+                                                                    unnormalized_derivatives=unnormalized_derivatives,
+                                                                    inverse=inverse,
+                                                                    min_bin_width=self.min_bin_width,
+                                                                    min_bin_height=self.min_bin_height,
+                                                                    min_derivative=self.min_derivative,
+                                                                    full_jacobian=full_jacobian,
+                                                                    tails=self.tails,
+                                                                    tail_bound=self.tail_bound
+                                                                )
 
-        return spline_fn(
-            inputs=inputs,
-            unnormalized_widths=unnormalized_widths,
-            unnormalized_heights=unnormalized_heights,
-            unnormalized_derivatives=unnormalized_derivatives,
-            inverse=inverse,
-            min_bin_width=self.min_bin_width,
-            min_bin_height=self.min_bin_height,
-            min_derivative=self.min_derivative,
-            full_jacobian=full_jacobian,
-            **spline_kwargs
-        )
-
-    def _transform_dim_multiplier(self):
+    def _transform_dim_multiplier(self) -> int:
         if self.tails == "linear":
             return self.num_bins * 3 - 1
         else:

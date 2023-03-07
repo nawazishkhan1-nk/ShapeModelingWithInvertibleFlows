@@ -581,7 +581,8 @@ class ForwardTrainer(Trainer):
         if self.multi_gpu:
             results = nn.parallel.data_parallel(self.model, x, module_kwargs=forward_kwargs)
         else:
-            results = self.model(x, **forward_kwargs)
+            self.model.set_mode(forward_kwargs["mode"])
+            results = self.model(x)
         if len(results) == 4:
             x_reco, log_prob, u, hidden = results
         else:

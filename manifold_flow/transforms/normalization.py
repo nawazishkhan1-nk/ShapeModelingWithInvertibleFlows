@@ -1,6 +1,6 @@
 """Implementation of normalization-based transforms."""
-import numpy as np
 import torch
+import math
 
 from torch import nn
 from torch.nn import functional as F
@@ -18,13 +18,13 @@ class BatchNorm(transforms.Transform):
     """
 
     def __init__(self, features, eps=1e-5, momentum=0.1, affine=True):
-        if not various.is_positive_int(features):
+        if not (isinstance(features, int) and features > 0):
             raise TypeError("Number of features must be a positive integer.")
         super().__init__()
 
         self.momentum = momentum
         self.eps = eps
-        constant = np.log(np.exp(1 - eps) - 1)
+        constant = math.log(math.exp(1 - eps) - 1)
         self.unconstrained_weight = nn.Parameter(constant * torch.ones(features))
         self.bias = nn.Parameter(torch.zeros(features))
 

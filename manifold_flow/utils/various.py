@@ -1,8 +1,8 @@
 import math
 import os
-import numpy as np
 import logging
 import torch
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,7 @@ def check_dependence(outputs, inputs):
     try:
         for i, out in enumerate(outputs.view(-1)):
             col_i = torch.autograd.grad(out, inputs, retain_graph=True, create_graph=False, allow_unused=True)[0]
-            if col_i is not None and np.max(np.abs(col_i.detach().numpy())) > 1.0e-9:
+            if col_i is not None and math.max(math.abs(col_i.detach().numpy())) > 1.0e-9:
                 return True
         return False
     except RuntimeError as e:
@@ -19,7 +19,7 @@ def check_dependence(outputs, inputs):
         return False
 
 
-def calculate_jacobian(outputs, inputs, create_graph=True):
+def calculate_jacobian(outputs: torch.Tensor, inputs: torch.Tensor, create_graph: bool=True)->torch.Tensor:
     """Computes the jacobian of outputs with respect to inputs.
 
     Based on gelijergensen's code at https://gist.github.com/sbarratt/37356c46ad1350d4c30aefbd488a4faa.
@@ -31,8 +31,10 @@ def calculate_jacobian(outputs, inputs, create_graph=True):
         jacobian of outputs with respect to inputs
     """
     jac = outputs.new_zeros(outputs.size() + inputs.size()).view((-1,) + inputs.size())
-    for i, out in enumerate(outputs.view(-1)):
-        col_i = torch.autograd.grad(out, inputs, retain_graph=True, create_graph=create_graph, allow_unused=True)[0]
+    n: int = outputs.view(-1).size()[0]
+    out_reshaped = outputs.view(-1)
+    for i in range(n):
+        col_i = torch.autograd.grad([out_reshaped[i]], [inputs], retain_graph=True, create_graph=create_graph, allow_unused=True)[0]
         if col_i is None:
             # this element of output doesn't depend on the inputs, so leave gradient 0
             continue
@@ -65,7 +67,7 @@ def calculate_jacobian(outputs, inputs, create_graph=True):
 #     return jacs
 
 
-def batch_jacobian(outputs, inputs, create_graph=True):
+def batch_jacobian(outputs: torch.Tensor, inputs: torch.Tensor, create_graph: bool=True)->torch.Tensor:
     """Computes the jacobian of outputs with respect to inputs, assuming the first dimension of both are the minibatch.
 
     Based on gelijergensen's code at https://gist.github.com/sbarratt/37356c46ad1350d4c30aefbd488a4faa.
@@ -78,7 +80,12 @@ def batch_jacobian(outputs, inputs, create_graph=True):
     """
 
     jac = calculate_jacobian(outputs, inputs)
-    jac = jac.view((outputs.size(0), np.prod(outputs.size()[1:]), inputs.size(0), np.prod(inputs.size()[1:])))
+    o_prod, i_prod = 1, 1
+    for x in outputs.size()[1:]:
+        o_prod *= x
+    for x in inputs.size()[1:]:
+        i_prod *= x
+    jac = jac.view((outputs.size(0), o_prod, inputs.size(0), i_prod))
     jac = torch.einsum("bibj->bij", jac)
 
     if create_graph:
@@ -87,7 +94,7 @@ def batch_jacobian(outputs, inputs, create_graph=True):
     return jac
 
 
-def batch_diagonal(input):
+def batch_diagonal(input: torch.Tensor)-> torch.Tensor:
     # idea from here: https://discuss.pytorch.org/t/batch-of-diagonal-matrix/13560
     # batches a stack of vectors (batch x N) -> a stack of diagonal matrices (batch x N x N)
     # works in  2D -> 3D, should also work in higher dimensions
@@ -103,90 +110,6 @@ def batch_diagonal(input):
     return output
 
 
-def shuffle(*arrays):
-    """ Shuffles multiple arrays simultaneously """
-
-    permutation = None
-    n_samples = None
-    shuffled_arrays = []
-
-    for i, a in enumerate(arrays):
-        if a is None:
-            shuffled_arrays.append(a)
-            continue
-
-        if permutation is None:
-            n_samples = a.shape[0]
-            permutation = np.random.permutation(n_samples)
-
-        assert a.shape[0] == n_samples
-        shuffled_a = a[permutation]
-        shuffled_arrays.append(shuffled_a)
-
-    return shuffled_arrays
-
-
-def sanitize_array(array, replace_nan=0.0, replace_inf=0.0, replace_neg_inf=0.0, min_value=None, max_value=None):
-    array[np.isneginf(array)] = replace_neg_inf
-    array[np.isinf(array)] = replace_inf
-    array[np.isnan(array)] = replace_nan
-
-    if min_value is not None or max_value is not None:
-        array = np.clip(array, min_value, max_value)
-
-    return array
-
-
-def weighted_quantile(values, quantiles, sample_weight=None, values_sorted=False, old_style=False):
-    """
-    Calculates quantiles (similar to np.percentile), but supports weights.
-
-    Parameters
-    ----------
-    values : ndarray
-        Data
-    quantiles : ndarray
-        Which quantiles to calculate
-    sample_weight : ndarray or None
-        Weights
-    values_sorted : bool
-        If True, will avoid sorting the initial array
-    old_style : bool
-        If True, will correct output to be consistent with np.percentile
-
-    Returns
-    -------
-    quantiles : ndarray
-        Quantiles
-
-    """
-
-    # Input
-    values = np.array(values, dtype=np.float64)
-    quantiles = np.array(quantiles)
-    if sample_weight is None:
-        sample_weight = np.ones(len(values))
-    sample_weight = np.array(sample_weight, dtype=np.float64)
-    assert np.all(quantiles >= 0) and np.all(quantiles <= 1), "quantiles should be in [0, 1]"
-
-    # Sort
-    if not values_sorted:
-        sorter = np.argsort(values)
-        values = values[sorter]
-        sample_weight = sample_weight[sorter]
-
-    # Quantiles
-    weighted_quantiles = np.cumsum(sample_weight) - 0.5 * sample_weight
-
-    # Postprocessing
-    if old_style:
-        # To be consistent with np.percentile
-        weighted_quantiles -= weighted_quantiles[0]
-        weighted_quantiles /= weighted_quantiles[-1]
-    else:
-        weighted_quantiles /= np.sum(sample_weight)
-
-    return np.interp(quantiles, weighted_quantiles, values)
 
 
 def approx_equal(a, b, epsilon=1.0e-6):
@@ -209,12 +132,12 @@ def create_missing_folders(folders):
 
 
 def product(x):
-    try:
+    if not isinstance(x, int):
         prod = 1
         for factor in x:
             prod *= factor
         return prod
-    except:
+    else:
         return x
 
 
@@ -316,7 +239,7 @@ def save_image(tensor, filename, nrow=8, padding=2, normalize=False, range=None,
 
 
 def tile(x, n):
-    if not is_positive_int(n):
+    if not (isinstance(n, int) and n > 0):
         raise TypeError("Argument 'n' must be a positive integer.")
     x_ = x.reshape(-1)
     x_ = x_.repeat(n)
@@ -326,11 +249,11 @@ def tile(x, n):
     return x_
 
 
-def sum_except_batch(x, num_batch_dims=1):
+def sum_except_batch(x: torch.Tensor, num_batch_dims: int=1):
     """Sums all elements of `x` except for the first `num_batch_dims` dimensions."""
-    if not is_nonnegative_int(num_batch_dims):
+    if not (isinstance(num_batch_dims, int) and num_batch_dims >= 0):
         raise TypeError("Number of batch dimensions must be a non-negative integer.")
-    reduce_dims = list(range(num_batch_dims, x.ndimension()))
+    reduce_dims = list(range(num_batch_dims, x.dim()))
     return torch.sum(x, dim=reduce_dims)
 
 
@@ -340,9 +263,9 @@ def split_leading_dim(x, shape):
     return torch.reshape(x, new_shape)
 
 
-def merge_leading_dims(x, num_dims):
+def merge_leading_dims(x: torch.Tensor, num_dims: int):
     """Reshapes the tensor `x` such that the first `num_dims` dimensions are merged to one."""
-    if not is_positive_int(num_dims):
+    if not (isinstance(num_dims, int) and num_dims > 0):
         raise TypeError("Number of leading dims must be a positive integer.")
     if num_dims > x.dim():
         raise ValueError("Number of leading dims can't be greater than total number of dims.")
@@ -350,9 +273,9 @@ def merge_leading_dims(x, num_dims):
     return torch.reshape(x, new_shape)
 
 
-def repeat_rows(x, num_reps):
+def repeat_rows(x: torch.Tensor, num_reps: int):
     """Each row of tensor `x` is repeated `num_reps` times along leading dimension."""
-    if not is_positive_int(num_reps):
+    if not (isinstance(num_reps, int) and num_reps > 0):
         raise TypeError("Number of repetitions must be a positive integer.")
     shape = x.shape
     x = x.unsqueeze(1)
@@ -364,7 +287,7 @@ def tensor2numpy(x):
     return x.detach().cpu().numpy()
 
 
-def logabsdet(x):
+def logabsdet(x: torch.Tensor)-> torch.Tensor:
     """Returns the log absolute determinant of square matrix x."""
     # Note: torch.logdet() only works for positive determinant.
     _, res = torch.slogdet(x)
@@ -407,7 +330,7 @@ def create_split_binary_mask(features, n_active):
     return mask
 
 
-def create_alternating_binary_mask(features, even=True):
+def create_alternating_binary_mask(features: int, even: bool=True)-> torch.Tensor:
     """
     Creates a binary mask of a given dimension which alternates its masking.
 
@@ -469,7 +392,7 @@ def create_mlt_channel_mask(features, channels_per_level=(1, 2, 4, 8), resolutio
     return mask
 
 
-def searchsorted(bin_locations, inputs, eps=1e-6):
+def searchsorted(bin_locations: torch.Tensor, inputs: torch.Tensor, eps: float=1e-6):
     bin_locations[..., -1] += eps
     return torch.sum(inputs[..., None] >= bin_locations, dim=-1) - 1
 
@@ -514,7 +437,7 @@ def is_nonnegative_int(x):
 
 
 def is_power_of_two(n):
-    if is_positive_int(n):
+    if (isinstance(n, int) and n > 0):
         return not n & (n - 1)
     else:
         return False

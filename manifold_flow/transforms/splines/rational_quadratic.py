@@ -1,7 +1,8 @@
 import torch
 from torch.nn import functional as F
 import logging
-import numpy as np
+import math
+from typing import Tuple
 
 from manifold_flow import transforms
 from manifold_flow.utils import various
@@ -14,18 +15,18 @@ DEFAULT_MIN_DERIVATIVE = 1e-3
 
 
 def unconstrained_rational_quadratic_spline(
-    inputs,
-    unnormalized_widths,
-    unnormalized_heights,
-    unnormalized_derivatives,
-    inverse=False,
-    tails="linear",
-    tail_bound=1.0,
-    min_bin_width=DEFAULT_MIN_BIN_WIDTH,
-    min_bin_height=DEFAULT_MIN_BIN_HEIGHT,
-    min_derivative=DEFAULT_MIN_DERIVATIVE,
-    full_jacobian=False,
-):
+    inputs: torch.Tensor,
+    unnormalized_widths: torch.Tensor,
+    unnormalized_heights: torch.Tensor,
+    unnormalized_derivatives: torch.Tensor,
+    inverse: bool=False,
+    tails:str ="linear",
+    tail_bound: float=1.0,
+    min_bin_width: float=DEFAULT_MIN_BIN_WIDTH,
+    min_bin_height: float=DEFAULT_MIN_BIN_HEIGHT,
+    min_derivative: float=DEFAULT_MIN_DERIVATIVE,
+    full_jacobian: bool=False,
+)->Tuple[torch.Tensor, torch.Tensor]:
     assert not full_jacobian
 
     inside_interval_mask = (inputs >= -tail_bound) & (inputs <= tail_bound)
@@ -36,7 +37,7 @@ def unconstrained_rational_quadratic_spline(
 
     if tails == "linear":
         unnormalized_derivatives = F.pad(unnormalized_derivatives, pad=(1, 1))
-        constant = np.log(np.exp(1 - min_derivative) - 1)
+        constant = math.log(math.exp(1 - min_derivative) - 1)
         unnormalized_derivatives[..., 0] = constant
         unnormalized_derivatives[..., -1] = constant
 
@@ -65,32 +66,32 @@ def unconstrained_rational_quadratic_spline(
 
 
 def rational_quadratic_spline(
-    inputs,
-    unnormalized_widths,
-    unnormalized_heights,
-    unnormalized_derivatives,
-    inverse=False,
-    left=0.0,
-    right=1.0,
-    bottom=0.0,
-    top=1.0,
-    min_bin_width=DEFAULT_MIN_BIN_WIDTH,
-    min_bin_height=DEFAULT_MIN_BIN_HEIGHT,
-    min_derivative=DEFAULT_MIN_DERIVATIVE,
-    full_jacobian=False,
-):
+    inputs: torch.Tensor,
+    unnormalized_widths: torch.Tensor,
+    unnormalized_heights: torch.Tensor,
+    unnormalized_derivatives: torch.Tensor,
+    inverse: bool=False,
+    left: float=0.0,
+    right: float=1.0,
+    bottom: float=0.0,
+    top: float=1.0,
+    min_bin_width: float=DEFAULT_MIN_BIN_WIDTH,
+    min_bin_height: float=DEFAULT_MIN_BIN_HEIGHT,
+    min_derivative: float=DEFAULT_MIN_DERIVATIVE,
+    full_jacobian: bool=False,
+)->Tuple[torch.Tensor, torch.Tensor]:
     assert not full_jacobian
 
-    try:
-        if torch.min(inputs) < left or torch.max(inputs) > right:
-            raise transforms.InputOutsideDomain()
-    except RuntimeError:
-        logger.error("Error in rational_quadratic_spline!")
-        logger.error("  Left: %s", left)
-        logger.error("  Right: %s", left)
-        logger.error("  Input shape: %s", inputs.size())
-        logger.error("  Input: %s", inputs)
-        raise
+    # try:
+    #     if torch.min(inputs) < left or torch.max(inputs) > right:
+    #         raise transforms.InputOutsideDomain()
+    # except RuntimeError:
+    #     logger.error("Error in rational_quadratic_spline!")
+    #     logger.error("  Left: %s", left)
+    #     logger.error("  Right: %s", left)
+    #     logger.error("  Input shape: %s", inputs.size())
+    #     logger.error("  Input: %s", inputs)
+    #     raise
 
     num_bins = unnormalized_widths.shape[-1]
 
