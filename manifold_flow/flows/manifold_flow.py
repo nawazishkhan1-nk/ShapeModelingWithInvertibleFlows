@@ -14,6 +14,35 @@ from manifold_flow import transforms
 logger = logging.getLogger(__name__)
 
 
+def compute_jacobian(inputs: torch.Tensor, output: torch.Tensor)->torch.Tensor:
+        """
+        :param inputs: B X dM 
+        :param output: B X L
+        :return: jacobian: B X L X dM
+        """
+        assert inputs.requires_grad
+
+        num_classes = output.size()[1]
+
+        jacobian = torch.zeros(num_classes, *inputs.size())
+        print(f"jacb size {jacobian.shape}")
+        grad_output = torch.zeros(*output.size())
+        if inputs.is_cuda:
+            grad_output = grad_output.cuda()
+            jacobian = jacobian.cuda()
+
+        for i in range(num_classes):
+            if inputs.grad is not None:
+                inputs.grad.zero_()
+            grad_output.zero_()
+            grad_output[:, i] = 1
+            output.backward(grad_output, retain_graph=True)
+            jacobian[i] = inputs.grad.data
+
+        jac = torch.transpose(jacobian, dim0=0, dim1=1)
+        return jac
+
+
 # Jit Compatible Distributions
 class StandardNormalModified(nn.Module):
     """A multivariate Normal with zero mean and unit covariance."""
@@ -298,14 +327,14 @@ class ProjectionSplit(nn.Module):
     def inverse(self, inputs: torch.Tensor, orthogonal_inputs: torch.Tensor=None)-> torch.Tensor:
         if orthogonal_inputs is None:
             orthogonal_inputs = torch.zeros(inputs.size(0), self.input_dim_total - self.output_dim)
-        if self.mode_in == "vector" and self.mode_out == "vector":
-            x = torch.cat((inputs, orthogonal_inputs), dim=1)
-        elif self.mode_in == "image" and self.mode_out == "vector":
-            c, h, w = self.input_dim
-            x = torch.cat((inputs, orthogonal_inputs), dim=1)
-            x = x.view(inputs.size(0), c, h, w)
-        else:
-            raise NotImplementedError("Unsuppoorted projection modes {}, {}".format(self.mode_in, self.mode_out))
+        # if self.mode_in == "vector" and self.mode_out == "vector":
+        x = torch.cat((inputs, orthogonal_inputs), dim=1)
+        # elif self.mode_in == "image" and self.mode_out == "vector":
+        #     c, h, w = self.input_dim
+        #     x = torch.cat((inputs, orthogonal_inputs), dim=1)
+        #     x = x.view(inputs.size(0), c, h, w)
+        # else:
+            # raise NotImplementedError("Unsuppoorted projection modes {}, {}".format(self.mode_in, self.mode_out))
         return x
 
 
@@ -351,7 +380,8 @@ class ManifoldFlow(nn.Module):
         """
         assert self.mode is not None
         mode = self.mode
-        context: torch.Tensor=None
+        # context: torch.Tensor=None
+        context = None
         return_hidden: bool=False
         assert mode in ["mf", "pie", "slice", "projection", "pie-inv", "mf-fixed-manifold"]
 
@@ -370,6 +400,44 @@ class ManifoldFlow(nn.Module):
         # if return_hidden:
         #     return x_reco, log_prob, u, torch.cat((h_manifold, h_orthogonal), -1)
         return x_reco, log_prob, u
+
+    @torch.jit.export
+    def forward_for_cpp(self, x: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert self.mode is not None
+        mode = self.mode
+        context = None
+        return_hidden: bool=False
+        assert mode in ["mf", "pie", "slice", "projection", "pie-inv", "mf-fixed-manifold"]
+
+        # Encode
+        u, h_manifold, h_orthogonal, log_det_outer, log_det_inner = self._encode(x, context)
+
+        # Decode
+        # x_reco, inv_log_det_inner, inv_log_det_outer, inv_jacobian_outer, h_manifold_reco = self._decode_for_cpp(u)
+        x_reco, inv_log_det_inner, inv_log_det_outer, inv_jacobian_outer, h_manifold_reco = self._decode(u, mode=mode, context=context)
+
+
+        # Log prob
+        log_prob_u, log_det_g, log_det_j = self.log_prob_for_cpp(mode, u, h_orthogonal, log_det_inner, log_det_outer, inv_log_det_inner, inv_log_det_outer, inv_jacobian_outer)
+        jaco = compute_jacobian(inputs=x, output=u)
+        return u, log_prob_u, log_det_g, log_det_j, jaco
+
+    
+    @torch.jit.export
+    def inverse_for_cpp(self, x: torch.Tensor)-> torch.Tensor:
+        assert self.mode is not None
+        mode = "projection"
+        context = None
+        return_hidden: bool=False
+        assert mode in ["mf", "pie", "slice", "projection", "pie-inv", "mf-fixed-manifold"]
+
+        # Encode
+        # u, h_manifold, h_orthogonal, log_det_outer, log_det_inner = self._encode(x, context)
+
+        # Decode
+        x_reco, inv_log_det_inner, inv_log_det_outer, inv_jacobian_outer, h_manifold_reco = self._decode(x, mode=mode, context=context)
+
+        return x_reco
 
 
     def forward_old(self, x: torch.Tensor, mode: str="mf", context: Optional[torch.Tensor]=None, return_hidden: bool=False)-> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -436,6 +504,39 @@ class ManifoldFlow(nn.Module):
 
         return u, h_manifold, h_orthogonal, log_det_outer, log_det_inner
 
+    # @torch.jit.export
+    def _decode_for_cpp(self, u: torch.Tensor)-> torch.Tensor:
+        # if mode == "mf" and not u.requires_grad:
+        #     u.requires_grad = True
+
+        h, inv_log_det_inner = self.inner_transform.inverse(u, full_jacobian=False, context=None)
+
+
+        
+        h = self.projection.inverse(h)
+
+        # if mode in ["pie", "slice", "projection", "mf-fixed-manifold"]:
+        x, inv_log_det_outer = self.outer_transform.inverse(h, full_jacobian=False, context=None)
+        # inv_jacobian_outer = None
+        return x
+
+
+    # @torch.jit.export
+    # def meta_decode_for_cpp(self, u: torch.Tensor)-> torch.Tensor:
+    #     # if mode == "mf" and not u.requires_grad:
+    #     #     u.requires_grad = True
+
+    #     h, inv_log_det_inner = self.inner_transform.inverse(u, full_jacobian=False, context=None)
+
+
+        
+    #     h = self.projection.inverse(h)
+
+    #     # if mode in ["pie", "slice", "projection", "mf-fixed-manifold"]:
+    #     x, inv_log_det_outer = self.outer_transform.inverse(h, full_jacobian=False, context=None)
+    #     # inv_jacobian_outer = None
+    #     return x
+
     def _decode(self, u: torch.Tensor, mode: str, u_orthogonal: torch.Tensor=None, context: Optional[torch.Tensor]=None)-> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if mode == "mf" and not u.requires_grad:
             u.requires_grad = True
@@ -490,6 +591,14 @@ class ManifoldFlow(nn.Module):
             log_prob = None
 
         return log_prob
+
+    
+    def log_prob_for_cpp(self, mode: str, u: torch.Tensor, h_orthogonal: torch.Tensor, log_det_inner: torch.Tensor, log_det_outer: torch.Tensor, inv_log_det_inner: torch.Tensor, inv_log_det_outer: torch.Tensor, inv_jacobian_outer: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        assert mode == "mf-fixed-manifold"
+        log_prob_u = self.manifold_latent_distribution._log_prob(u, context=None)
+        log_prob = log_prob_u + self.orthogonal_latent_distribution._log_prob(h_orthogonal, context=None)
+        log_prob = log_prob + log_det_outer + log_det_inner
+        return log_prob_u, log_det_outer, log_det_inner
 
     def _report_model_parameters(self):
         """ Reports the model size """

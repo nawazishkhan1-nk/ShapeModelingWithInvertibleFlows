@@ -7,7 +7,7 @@ scripts_dir="scripts-final"
 
 
 expt_num=1
-dataset="pancreas-test-jit"
+dataset="pancreas"
 
 
 config_path="$expt_num-$dataset.config"

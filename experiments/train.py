@@ -345,12 +345,76 @@ def fix_act_norm_issue(model):
 
 def run_evaluation(model, dataset, device, eval_results_dir, args):
     train_loader, val_loader = create_dataloader(dataset, args.validationsplit, args.batchsize)
-    model.eval()
     model.to(device)
+    model.eval()
     
     # 2. Generalization
+    # if "cuda" in torch.device.get_device_name(device):
+    #     print("OK")
+    torch.set_default_tensor_type("torch.cuda.FloatTensor")
+
     print(f'Running Generalization')
     recon_dir = f"{eval_results_dir}/inputs_and_reconstructions/"
+    x = None
+    for i_batch, batch_data in enumerate(val_loader):
+        x = batch_data[0].to(device, torch.float)
+        break
+    # Jacobian check:
+    import time
+
+    
+    t1 = time.time()
+    x = x[0]
+    dM = x.shape[-1]
+    print(f"x shape = {x.shape}")
+    # fwd pass
+    # x_new= x.repeat(dM, 1)
+    x_new = x[None, ...]
+    print(f"x_new shape {x_new.shape}")
+    x_new.requires_grad_(True)
+
+    model.set_mode("mf-fixed-manifold")
+    print(f"x_new shape {x_new.shape}")
+
+    x_recon, log_prob, u = model(x_new)
+    print(f"u shape = {u.shape}")
+
+
+    def compute_jacobian(inputs, output):
+        """
+        :param inputs: Batch X Size (e.g. Depth X Width X Height)
+        :param output: Batch X Classes
+        :return: jacobian: Batch X Classes X Size
+        """
+        assert inputs.requires_grad
+
+        num_classes = output.size()[1]
+
+        jacobian = torch.zeros(num_classes, *inputs.size())
+        print(f"jacb size {jacobian.shape}")
+        grad_output = torch.zeros(*output.size())
+        if inputs.is_cuda:
+            grad_output = grad_output.cuda()
+            jacobian = jacobian.cuda()
+
+        for i in range(num_classes):
+            if inputs.grad is not None:
+                inputs.grad.zero_()
+            grad_output.zero_()
+            grad_output[:, i] = 1
+            output.backward(grad_output, retain_graph=True)
+            jacobian[i] = inputs.grad.data
+
+        return torch.transpose(jacobian, dim0=0, dim1=1)
+
+    jac = compute_jacobian(inputs=x_new, output=u)
+
+    # ones = torch.ones(dM, 128)
+    # u.backward(ones)
+    # jac = x_new.grad.data
+    t2 = time.time()
+    print(f"jacobian {jac.shape} | took {(t2-t1):.2f} seconds")
+
     os.makedirs(recon_dir, exist_ok=True)
     generalization_errors = []
     for i_batch, batch_data in enumerate(val_loader):
@@ -524,7 +588,7 @@ if __name__ == "__main__":
         train_done = True
         logger.info("All Training done! Have a nice day!")
     if args.eval_model:
-        eval_dev = torch.device('cpu')
+        eval_dev = torch.device('cuda')
         if args.eval_model:
             model_fn = create_filename("model", None, args)
             if not os.path.exists(model_fn):
@@ -534,7 +598,7 @@ if __name__ == "__main__":
         os.makedirs(eval_results_dir, exist_ok=True)
         shutil.copy2(args.c, eval_results_dir)
         logger.info("Evaluating model now !!!!!")
-        run_evaluation(model, dataset, eval_dev,eval_results_dir, args )
+        run_evaluation(model, dataset, eval_dev, eval_results_dir, args )
         logger.info("All Eval done! Have a nice day!")
 
     if args.serialize_model:

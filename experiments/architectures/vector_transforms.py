@@ -1,4 +1,3 @@
-from manifold_flow.transforms.svd import SVDLinear
 from torch.nn import functional as F
 import logging
 import torch
@@ -25,12 +24,12 @@ class CompositeTransform(nn.Module):
         super().__init__()
         self._transforms: torch.nn.ModuleList = nn.ModuleList(transforms)
 
-    @torch.jit.export
+    # @torch.jit.export
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
         funcs = self._transforms
         batch_size = inputs.shape[0]
         outputs = inputs
-
+        # print(f"full jacobian is {full_jacobian} in composite transform")
         if full_jacobian:
             total_jacobian = None
             for func in funcs:
@@ -54,19 +53,21 @@ class CompositeTransform(nn.Module):
             total_logabsdet = torch.zeros(batch_size)
             for func in funcs:
                 outputs, logabsdet = func(outputs, context)
+                # print(f"outputs {outputs.get_device()} | logabsdet {logabsdet.get_device()}")
                 total_logabsdet += logabsdet
             return outputs, total_logabsdet
 
+    @torch.jit.export
     def inverse(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
-        funcs = (transform.inverse for transform in self._transforms[::-1])
+        # funcs = (transform.inverse for transform in self._transforms[::-1])
         batch_size = inputs.shape[0]
         outputs = inputs
 
         if full_jacobian:
             total_jacobian = None
-            for func in funcs:
+            for transform in self._transforms[::-1]:
                 inputs = outputs
-                outputs, jacobian = func(inputs, context, full_jacobian=True)
+                outputs, jacobian = transform.inverse(inputs, context, full_jacobian=True)
 
                 # # Cross-check for debugging
                 # _, logabsdet = func(inputs, context, full_jacobian=False)
@@ -83,8 +84,8 @@ class CompositeTransform(nn.Module):
 
         else:
             total_logabsdet = torch.zeros(batch_size)
-            for func in funcs:
-                outputs, logabsdet = func(outputs, context)
+            for transform in self._transforms[::-1]:
+                outputs, logabsdet = transform.inverse(outputs, context)
                 total_logabsdet += logabsdet
             return outputs, total_logabsdet
 
@@ -93,7 +94,9 @@ def _create_vector_linear_transform(linear_transform_type, features):
     if linear_transform_type == "permutation":
         return RandomPermutation(features=features)
     elif linear_transform_type == "svd":
-        return CompositeTransform([RandomPermutation(features=features), SVDLinear(features, num_householder=10)])
+        # return CompositeTransform([RandomPermutation(features=features), SVDLinear(features, num_householder=10)])
+        return CompositeTransform([RandomPermutation(features=features), RandomPermutation(features=features)])
+
     else:
         raise ValueError
 

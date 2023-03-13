@@ -83,6 +83,7 @@ def _permute(inputs, permutation, dim:int = -1, full_jacobian: bool=False)-> Tup
 
             return outputs, jacobian
         else:
+            # print(f"in permute {inputs.get_device()} | dim = {dim} | permutation {permutation.get_device()}")
             outputs = torch.index_select(inputs, dim, permutation)
             logabsdet = torch.zeros(batch_size)
             return outputs, logabsdet
@@ -108,7 +109,8 @@ class RandomPermutation(nn.Module):
 
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
         return _permute(inputs, self._permutation, self._dim, full_jacobian=full_jacobian)
-
+    
+    @torch.jit.export
     def inverse(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
         return _permute(inputs, self._inverse_permutation, self._dim, full_jacobian=full_jacobian)
 
@@ -237,33 +239,34 @@ class SVDLinear(nn.Module):
         #         logabsdet = (-self.cache.logabsdet) * torch.ones(outputs.shape[0])
         #         return outputs, logabsdet
         # else:
-        return self.inverse_no_cache(inputs, full_jacobian=full_jacobian)
+            return self.inverse_no_cache(inputs, full_jacobian=full_jacobian)
 
-    def train(self, mode=True):
-        if mode:
-            # If training again, invalidate cache.
-            self.cache.invalidate()
-        return super().train(mode)
+    # def train(self, mode=True):
+    #     if mode:
+    #         # If training again, invalidate cache.
+    #         self.cache.invalidate()
+    #     return super().train(mode)
 
-    def _check_forward_cache(self):
-        if self.cache.weight is None and self.cache.logabsdet is None:
-            self.cache.weight, self.cache.logabsdet = self.weight_and_logabsdet()
+    # def _check_forward_cache(self):
+    #     if self.cache.weight is None and self.cache.logabsdet is None:
+    #         self.cache.weight, self.cache.logabsdet = self.weight_and_logabsdet()
 
-        elif self.cache.weight is None:
-            self.cache.weight = self.weight()
+    #     elif self.cache.weight is None:
+    #         self.cache.weight = self.weight()
 
-        elif self.cache.logabsdet is None:
-            self.cache.logabsdet = self.logabsdet()
+    #     elif self.cache.logabsdet is None:
+    #         self.cache.logabsdet = self.logabsdet()
 
-    def _check_inverse_cache(self):
-        if self.cache.inverse is None and self.cache.logabsdet is None:
-            self.cache.inverse, self.cache.logabsdet = self.weight_inverse_and_logabsdet()
+    # def _check_inverse_cache(self):
+    #     if self.cache.inverse is None and self.cache.logabsdet is None:
+    #         self.cache.inverse, self.cache.logabsdet = self.weight_inverse_and_logabsdet()
 
-        elif self.cache.inverse is None:
-            self.cache.inverse = self.weight_inverse()
+    #     elif self.cache.inverse is None:
+    #         self.cache.inverse = self.weight_inverse()
 
-        elif self.cache.logabsdet is None:
-            self.cache.logabsdet = self.logabsdet()
+    #     elif self.cache.logabsdet is None:
+    #         self.cache.logabsdet = self.logabsdet()
+
 
     def forward_no_cache(self, inputs: torch.Tensor, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
         """Cost:
@@ -285,6 +288,7 @@ class SVDLinear(nn.Module):
 
         return outputs, logabsdet
 
+
     def inverse_no_cache(self, inputs: torch.Tensor, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
         """Cost:
             output = O(KDN)
@@ -304,29 +308,29 @@ class SVDLinear(nn.Module):
         logabsdet = logabsdet * torch.ones(outputs.shape[0])
         return outputs, logabsdet
 
-    def weight(self)-> torch.Tensor:
-        """Cost:
-            weight = O(KD^2)
-        where:
-            K = num of householder transforms
-            D = num of features
-        """
-        diagonal = torch.diag(torch.exp(self.log_diagonal))
-        weight, _ = self.orthogonal_2.inverse(diagonal)
-        weight, _ = self.orthogonal_1(weight.t())
-        return weight.t()
+    # def weight(self)-> torch.Tensor:
+    #     """Cost:
+    #         weight = O(KD^2)
+    #     where:
+    #         K = num of householder transforms
+    #         D = num of features
+    #     """
+    #     diagonal = torch.diag(torch.exp(self.log_diagonal))
+    #     weight, _ = self.orthogonal_2.inverse(diagonal)
+    #     weight, _ = self.orthogonal_1(weight.t())
+    #     return weight.t()
 
-    def weight_inverse(self)-> torch.Tensor:
-        """Cost:
-            inverse = O(KD^2)
-        where:
-            K = num of householder transforms
-            D = num of features
-        """
-        diagonal_inv = torch.diag(torch.exp(-self.log_diagonal))
-        weight_inv, _ = self.orthogonal_1(diagonal_inv)
-        weight_inv, _ = self.orthogonal_2.inverse(weight_inv.t())
-        return weight_inv.t()
+    # def weight_inverse(self)-> torch.Tensor:
+    #     """Cost:
+    #         inverse = O(KD^2)
+    #     where:
+    #         K = num of householder transforms
+    #         D = num of features
+    #     """
+    #     diagonal_inv = torch.diag(torch.exp(-self.log_diagonal))
+    #     weight_inv, _ = self.orthogonal_1(diagonal_inv)
+    #     weight_inv, _ = self.orthogonal_2.inverse(weight_inv.t())
+    #     return weight_inv.t()
 
     def logabsdet(self)-> torch.Tensor:
         """Cost:
@@ -336,12 +340,12 @@ class SVDLinear(nn.Module):
         """
         return torch.sum(self.log_diagonal)
 
-    def weight_and_logabsdet(self)-> Tuple[torch.Tensor, torch.Tensor]:
-        # if it is more efficient to compute the weight matrix
-        # and its logabsdet together.
-        return self.weight(), self.logabsdet()
+    # def weight_and_logabsdet(self)-> Tuple[torch.Tensor, torch.Tensor]:
+    #     # if it is more efficient to compute the weight matrix
+    #     # and its logabsdet together.
+    #     return self.weight(), self.logabsdet()
 
-    def weight_inverse_and_logabsdet(self)-> Tuple[torch.Tensor, torch.Tensor]:
-        #  if it is more efficient to compute the weight matrix
-        # inverse and weight matrix logabsdet together.
-        return self.weight_inverse(), self.logabsdet()
+    # def weight_inverse_and_logabsdet(self)-> Tuple[torch.Tensor, torch.Tensor]:
+    #     #  if it is more efficient to compute the weight matrix
+    #     # inverse and weight matrix logabsdet together.
+    #     return self.weight_inverse(), self.logabsdet()

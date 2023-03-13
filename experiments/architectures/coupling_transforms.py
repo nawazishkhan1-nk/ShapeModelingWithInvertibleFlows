@@ -82,7 +82,6 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
     # def num_transform_features(self):
     #     return len(self.transform_features)
     
-    @torch.jit.export
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
         if inputs.dim() not in [2, 4]:
             raise ValueError("Inputs must be a 2D or a 4D tensor.")
