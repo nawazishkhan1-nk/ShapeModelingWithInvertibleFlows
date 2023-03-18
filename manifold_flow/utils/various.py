@@ -2,7 +2,7 @@ import math
 import os
 import logging
 import torch
-from typing import List
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,27 @@ def calculate_jacobian(outputs: torch.Tensor, inputs: torch.Tensor, create_graph
 #         jacs.append(calculate_jacobian(output, input, create_graph).unsqueeze(0))  # DOESN'T WORK
 #     jacs = torch.cat(jacs, 0)
 #     return jacs
+
+
+def shapes_to_tensor(x: List[int], device: Optional[torch.device] = None) -> torch.Tensor:
+    """
+    Turn a list of integer scalars or integer Tensor scalars into a vector,
+    in a way that's both traceable and scriptable.
+    In tracing, `x` should be a list of scalar Tensor, so the output can trace to the inputs.
+    In scripting or eager, `x` should be a list of int.
+    """
+    if torch.jit.is_scripting():
+        return torch.as_tensor(x, device=device)
+    if torch.jit.is_tracing():
+        assert all(
+            [isinstance(t, torch.Tensor) for t in x]
+        ), "Shape should be tensor during tracing!"
+        # as_tensor should not be used in tracing because it records a constant
+        ret = torch.stack(x)
+        if ret.device != device:  # avoid recording a hard-coded device if not necessary
+            ret = ret.to(device=device)
+        return ret
+    return torch.as_tensor(x, device=device)
 
 
 def batch_jacobian(outputs: torch.Tensor, inputs: torch.Tensor, create_graph: bool=True)->torch.Tensor:
@@ -259,7 +280,7 @@ def sum_except_batch(x: torch.Tensor, num_batch_dims: int=1):
 
 def split_leading_dim(x, shape):
     """Reshapes the leading dim of `x` to have the given shape."""
-    new_shape = torch.Size(shape) + x.shape[1:]
+    new_shape = torch.Size(shapes_to_tensor(shape)) + shapes_to_tensor(x.shape)[1:]
     return torch.reshape(x, new_shape)
 
 
@@ -269,7 +290,7 @@ def merge_leading_dims(x: torch.Tensor, num_dims: int):
         raise TypeError("Number of leading dims must be a positive integer.")
     if num_dims > x.dim():
         raise ValueError("Number of leading dims can't be greater than total number of dims.")
-    new_shape = torch.Size([-1]) + x.shape[num_dims:]
+    new_shape = torch.Size([-1]) + shapes_to_tensor(x.shape)[num_dims:]
     return torch.reshape(x, new_shape)
 
 
@@ -277,7 +298,7 @@ def repeat_rows(x: torch.Tensor, num_reps: int):
     """Each row of tensor `x` is repeated `num_reps` times along leading dimension."""
     if not (isinstance(num_reps, int) and num_reps > 0):
         raise TypeError("Number of repetitions must be a positive integer.")
-    shape = x.shape
+    shape = shapes_to_tensor(x.shape)
     x = x.unsqueeze(1)
     x = x.expand(shape[0], num_reps, *shape[1:])
     return merge_leading_dims(x, num_dims=2)
@@ -304,17 +325,6 @@ def random_orthogonal(size):
     q, _ = torch.qr(x)
     return q
 
-
-def get_num_parameters(model):
-    """
-    Returns the number of trainable parameters in a model of type nn.Module
-    :param model: nn.Module containing trainable parameters
-    :return: number of trainable parameters in model
-    """
-    num_parameters = 0
-    for parameter in model.parameters():
-        num_parameters += torch.numel(parameter)
-    return num_parameters
 
 
 def create_split_binary_mask(features, n_active):

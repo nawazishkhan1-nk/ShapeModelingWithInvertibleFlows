@@ -27,22 +27,19 @@ class ResidualBlock(nn.Module):
             init.uniform_(self.linear_layers[-1].weight, -1e-3, 1e-3)
             init.uniform_(self.linear_layers[-1].bias, -1e-3, 1e-3)
 
-    # @torch.jit.export
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None) -> torch.Tensor:
         temps = inputs
-        # if self.use_batch_norm:
-        #     temps = self.batch_norm_layers[0](temps)
+        if self.use_batch_norm:
+            temps = self.batch_norm_layers[0](temps)
         temps = self.activation(temps)
         temps = self.linear_layers[0](temps)
-        # if self.use_batch_norm:
-        #     temps = self.batch_norm_layers[1](temps)
+        if self.use_batch_norm:
+            temps = self.batch_norm_layers[1](temps)
         temps = self.activation(temps)
         temps = self.dropout(temps)
         temps = self.linear_layers[1](temps)
         # if context is not None:
         #     temps = F.glu(torch.cat((temps, self.context_layer(context)), dim=1), dim=1)
-        # else:
-            # temps = torch.zeros_like(inputs)
         return inputs + temps
 
 class ResidualNet(nn.Module):
@@ -66,7 +63,6 @@ class ResidualNet(nn.Module):
         )
         self.final_layer = nn.Linear(hidden_features, out_features)
 
-    # @torch.jit.export
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None)->torch.Tensor:
         if context is None:
             temps = self.initial_layer(inputs)

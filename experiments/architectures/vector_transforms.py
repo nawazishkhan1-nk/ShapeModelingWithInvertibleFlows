@@ -24,28 +24,16 @@ class CompositeTransform(nn.Module):
         super().__init__()
         self._transforms: torch.nn.ModuleList = nn.ModuleList(transforms)
 
-    # @torch.jit.export
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
         funcs = self._transforms
-        batch_size = inputs.shape[0]
+        batch_size = various.shapes_to_tensor(inputs.shape)[0]
         outputs = inputs
-        # print(f"full jacobian is {full_jacobian} in composite transform")
         if full_jacobian:
             total_jacobian = None
             for func in funcs:
                 inputs = outputs
                 outputs, jacobian = func(inputs, context, full_jacobian=True)
-
-                # # Cross-check for debugging
-                # _, logabsdet = func(inputs, context, full_jacobian=False)
-                # _, logabsdet_from_jacobian = torch.slogdet(jacobian)
-                # logger.debug("Transformation %s has Jacobian\n%s\nwith log abs det %s (ground truth %s)", type(func).__name__, jacobian.detach().numpy()[0], logabsdet_from_jacobian[0].item(), logabsdet[0].item())
-
-                # timer.timer(start="Jacobian multiplication")
                 total_jacobian = jacobian if total_jacobian is None else torch.bmm(jacobian, total_jacobian)
-                # timer.timer(stop="Jacobian multiplication")
-
-            # logger.debug("Composite Jacobians \n %s", total_jacobian[0])
 
             return outputs, total_jacobian
 
@@ -53,14 +41,11 @@ class CompositeTransform(nn.Module):
             total_logabsdet = torch.zeros(batch_size)
             for func in funcs:
                 outputs, logabsdet = func(outputs, context)
-                # print(f"outputs {outputs.get_device()} | logabsdet {logabsdet.get_device()}")
                 total_logabsdet += logabsdet
             return outputs, total_logabsdet
 
-    @torch.jit.export
     def inverse(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
-        # funcs = (transform.inverse for transform in self._transforms[::-1])
-        batch_size = inputs.shape[0]
+        batch_size = various.shapes_to_tensor(inputs.shape)[0]
         outputs = inputs
 
         if full_jacobian:
@@ -68,17 +53,7 @@ class CompositeTransform(nn.Module):
             for transform in self._transforms[::-1]:
                 inputs = outputs
                 outputs, jacobian = transform.inverse(inputs, context, full_jacobian=True)
-
-                # # Cross-check for debugging
-                # _, logabsdet = func(inputs, context, full_jacobian=False)
-                # _, logabsdet_from_jacobian = torch.slogdet(jacobian)
-                # logger.debug("Transformation %s has Jacobian\n%s\nwith log abs det %s (ground truth %s)", type(func).__name__, jacobian.detach().numpy()[0], logabsdet_from_jacobian[0].item(), logabsdet[0].item())
-
-                # timer.timer(start="Jacobian multiplication")
                 total_jacobian = jacobian if total_jacobian is None else torch.bmm(jacobian, total_jacobian)
-                # timer.timer(stop="Jacobian multiplication")
-
-            # logger.debug("Composite Jacobians \n %s", total_jacobian[0])
 
             return outputs, total_jacobian
 
@@ -94,9 +69,7 @@ def _create_vector_linear_transform(linear_transform_type, features):
     if linear_transform_type == "permutation":
         return RandomPermutation(features=features)
     elif linear_transform_type == "svd":
-        # return CompositeTransform([RandomPermutation(features=features), SVDLinear(features, num_householder=10)])
-        return CompositeTransform([RandomPermutation(features=features), RandomPermutation(features=features)])
-
+        return CompositeTransform([RandomPermutation(features=features), SVDLinear(features, num_householder=10)])
     else:
         raise ValueError
 

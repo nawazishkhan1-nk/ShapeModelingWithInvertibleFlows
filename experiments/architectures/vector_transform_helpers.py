@@ -38,7 +38,7 @@ def _apply_transforms_for_householder(inputs: torch.Tensor, q_vectors: torch.Ten
         logabsdet = torch.zeros(batch_size)
         return outputs, logabsdet
 
-def _permute(inputs, permutation, dim:int = -1, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
+def _permute(inputs: torch.Tensor, permutation: torch.Tensor, dim:int = -1, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
         if dim >= inputs.dim():
             raise ValueError("No dimension {} in inputs.".format(dim))
         if inputs.shape[dim] != len(permutation):
@@ -192,7 +192,7 @@ class SVDLinear(nn.Module):
 
         # Caching flag and values.
         self.using_cache = using_cache
-        self.cache = LinearCache()
+        # self.cache = LinearCache()
 
         # First orthogonal matrix (U).
         self.orthogonal_1 = HouseholderSequence(features=features, num_transforms=num_householder)

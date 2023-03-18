@@ -26,7 +26,7 @@ from datasets import load_simulator, SIMULATORS
 from utils import create_filename, create_modelname, nat_to_bit_per_dim, create_dataloader
 from architectures import create_model
 from architectures.create_model import ALGORITHMS
-from manifold_flow.transforms.normalization import ActNorm
+# from manifold_flow.transforms.normalization import ActNorm
 
 logger = logging.getLogger(__name__)
 
@@ -335,13 +335,13 @@ def train_model(args, dataset, model, simulator):
 
     return learning_curves
 
-def fix_act_norm_issue(model):
-    if isinstance(model, ActNorm):
-        logger.debug("Fixing initialization state of actnorm layer")
-        model.initialized = True
+# def fix_act_norm_issue(model):
+#     if isinstance(model, ActNorm):
+#         logger.debug("Fixing initialization state of actnorm layer")
+#         model.initialized = True
 
-    for _, submodel in model._modules.items():
-        fix_act_norm_issue(submodel)
+#     for _, submodel in model._modules.items():
+#         fix_act_norm_issue(submodel)
 
 def run_evaluation(model, dataset, device, eval_results_dir, args):
     train_loader, val_loader = create_dataloader(dataset, args.validationsplit, args.batchsize)
@@ -355,66 +355,6 @@ def run_evaluation(model, dataset, device, eval_results_dir, args):
 
     print(f'Running Generalization')
     recon_dir = f"{eval_results_dir}/inputs_and_reconstructions/"
-    x = None
-    for i_batch, batch_data in enumerate(val_loader):
-        x = batch_data[0].to(device, torch.float)
-        break
-    # Jacobian check:
-    import time
-
-    
-    t1 = time.time()
-    x = x[0]
-    dM = x.shape[-1]
-    print(f"x shape = {x.shape}")
-    # fwd pass
-    # x_new= x.repeat(dM, 1)
-    x_new = x[None, ...]
-    print(f"x_new shape {x_new.shape}")
-    x_new.requires_grad_(True)
-
-    model.set_mode("mf-fixed-manifold")
-    print(f"x_new shape {x_new.shape}")
-
-    x_recon, log_prob, u = model(x_new)
-    print(f"u shape = {u.shape}")
-
-
-    def compute_jacobian(inputs, output):
-        """
-        :param inputs: Batch X Size (e.g. Depth X Width X Height)
-        :param output: Batch X Classes
-        :return: jacobian: Batch X Classes X Size
-        """
-        assert inputs.requires_grad
-
-        num_classes = output.size()[1]
-
-        jacobian = torch.zeros(num_classes, *inputs.size())
-        print(f"jacb size {jacobian.shape}")
-        grad_output = torch.zeros(*output.size())
-        if inputs.is_cuda:
-            grad_output = grad_output.cuda()
-            jacobian = jacobian.cuda()
-
-        for i in range(num_classes):
-            if inputs.grad is not None:
-                inputs.grad.zero_()
-            grad_output.zero_()
-            grad_output[:, i] = 1
-            output.backward(grad_output, retain_graph=True)
-            jacobian[i] = inputs.grad.data
-
-        return torch.transpose(jacobian, dim0=0, dim1=1)
-
-    jac = compute_jacobian(inputs=x_new, output=u)
-
-    # ones = torch.ones(dM, 128)
-    # u.backward(ones)
-    # jac = x_new.grad.data
-    t2 = time.time()
-    print(f"jacobian {jac.shape} | took {(t2-t1):.2f} seconds")
-
     os.makedirs(recon_dir, exist_ok=True)
     generalization_errors = []
     for i_batch, batch_data in enumerate(val_loader):
@@ -425,10 +365,10 @@ def run_evaluation(model, dataset, device, eval_results_dir, args):
         gen = torch.linalg.norm((x_recon-x)).item()
         generalization_errors.append(gen)
         print(f'GEN = {gen}')
-        np.save(f"{recon_dir}/x_batch_{i_batch}.npy", x.detach().numpy())
-        np.save(f"{recon_dir}/x_recon_batch_{i_batch}.npy", x_recon.detach().numpy())
-        np.save(f"{recon_dir}/log_prob_batch_{i_batch}.npy", log_prob.detach().numpy())
-        np.save(f"{recon_dir}/u_batch_{i_batch}.npy", u.detach().numpy())
+        np.save(f"{recon_dir}/x_batch_{i_batch}.npy", x.detach().cpu().numpy())
+        np.save(f"{recon_dir}/x_recon_batch_{i_batch}.npy", x_recon.detach().cpu().numpy())
+        np.save(f"{recon_dir}/log_prob_batch_{i_batch}.npy", log_prob.detach().cpu().numpy())
+        np.save(f"{recon_dir}/u_batch_{i_batch}.npy", u.detach().cpu().numpy())
 
 
     gen_val = np.mean(np.array(generalization_errors))
@@ -566,7 +506,7 @@ if __name__ == "__main__":
     # Maybe load pretrained model
     if args.resume is not None:
         model.load_state_dict(torch.load(resume_filename, map_location=torch.device("cpu")))
-        fix_act_norm_issue(model)
+        # fix_act_norm_issue(model)
     elif args.load is not None:
         args_ = copy.deepcopy(args)
         args_.modelname = args.load
@@ -574,7 +514,7 @@ if __name__ == "__main__":
             args_.modelname += "_run{}".format(args_.i)
         logger.info("Loading model %s", args_.modelname)
         model.load_state_dict(torch.load(create_filename("model", None, args_), map_location=torch.device("cpu")))
-        fix_act_norm_issue(model)
+        # fix_act_norm_issue(model)
 
     if (not args.eval_model) and (not args.serialize_model):
         # Train and save
@@ -602,8 +542,7 @@ if __name__ == "__main__":
         logger.info("All Eval done! Have a nice day!")
 
     if args.serialize_model:
-        eval_dev = torch.device('cpu')
-
+        eval_dev = torch.device('cuda:0')
         model_fn = create_filename("model", None, args)
         if not os.path.exists(model_fn):
             model_fn = create_filename("resume", None, args)
@@ -611,8 +550,26 @@ if __name__ == "__main__":
         logger.info("Model Loaded, Running Serialization !!!!!")
         eval_results_dir = "{}/experiments/data/eval_results/{}/".format(args.dir, args.modelname)
         os.makedirs(eval_results_dir, exist_ok=True)
+        torch.set_default_tensor_type("torch.cuda.FloatTensor")
+        model.to(eval_dev)
         model.eval()
-        sm = torch.jit.script(model)
+
+        train_loader, val_loader = create_dataloader(dataset, args.validationsplit, args.batchsize)
+        x = torch.zeros(1, 1)
+        for i_batch, batch_data in enumerate(val_loader):
+            x = batch_data[0].to(eval_dev, torch.float)
+            x = x[0].reshape(1, -1)
+            # x.requires_grad_(True)
+            print(f' input vector shape {x.shape} device = {x.get_device()}')
+            x_recon, log_prob, u = model(x, mode="mf-fixed-manifold")
+            print(f' Reconstructed vector shape {x_recon.shape} | log_prob shape {log_prob.shape} | u shape {u.shape}')
+            break
+
+        print("OK")
+        tracing_inputs = {"forward_pass_complete": x}
+        # tracing_inputs = {"compute_log_prob": x}
+        sm = torch.jit.trace_module(model, tracing_inputs)
+        logger.info(f'******************** Serialize Module Done ************************')
         serialized_model_path = f"{eval_results_dir}/serialized_model.pt"
         torch.jit.save(sm, serialized_model_path)
         logger.info(f'******************** Serialized Module saved ************************')

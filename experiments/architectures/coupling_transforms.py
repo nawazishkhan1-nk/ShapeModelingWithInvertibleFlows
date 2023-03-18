@@ -8,7 +8,7 @@ import warnings
 from manifold_flow import nn as nn_
 
 from manifold_flow.utils import various
-from manifold_flow.transforms import splines
+from .rational_quadratic_splines import DEFAULT_MIN_BIN_WIDTH, DEFAULT_MIN_BIN_HEIGHT, DEFAULT_MIN_DERIVATIVE, unconstrained_rational_quadratic_spline, rational_quadratic_spline
 
 from typing import List, Tuple, Optional
 logger = logging.getLogger(__name__)
@@ -27,9 +27,9 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
         tail_bound: float=1.0,
         apply_unconditional_transform: bool=False,
         img_shape: List[int]=None,
-        min_bin_width: float=splines.rational_quadratic.DEFAULT_MIN_BIN_WIDTH,
-        min_bin_height: float=splines.rational_quadratic.DEFAULT_MIN_BIN_HEIGHT,
-        min_derivative: float=splines.rational_quadratic.DEFAULT_MIN_DERIVATIVE,
+        min_bin_width: float=DEFAULT_MIN_BIN_WIDTH,
+        min_bin_height: float=DEFAULT_MIN_BIN_HEIGHT,
+        min_derivative: float=DEFAULT_MIN_DERIVATIVE,
     ):
         super().__init__()
         self.num_bins = num_bins
@@ -46,8 +46,8 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
         mask = torch.as_tensor(mask)
         if mask.dim() != 1:
             raise ValueError("Mask must be a 1-dim tensor.")
-        if mask.numel() <= 0:
-            raise ValueError("Mask can't be empty.")
+        # if mask.numel() <= 0:
+        #     raise ValueError("Mask can't be empty.")
 
         self.features = len(mask)
         features_vector = torch.arange(self.features)
@@ -83,11 +83,11 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
     #     return len(self.transform_features)
     
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
-        if inputs.dim() not in [2, 4]:
-            raise ValueError("Inputs must be a 2D or a 4D tensor.")
+        # if inputs.dim() not in [2, 4]:
+        #     raise ValueError("Inputs must be a 2D or a 4D tensor.")
 
-        if inputs.shape[1] != self.features:
-            raise ValueError("Expected features = {}, got {}.".format(self.features, inputs.shape[1]))
+        # if inputs.shape[1] != self.features:
+        #     raise ValueError("Expected features = {}, got {}.".format(self.features, inputs.shape[1]))
 
         identity_split = inputs[:, self.identity_features, ...]
         transform_split = inputs[:, self.transform_features, ...]
@@ -97,24 +97,8 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
 
         if full_jacobian:
             transform_params = self.transform_net(identity_split, context)
-
-            # logger.debug("transform_params depends on inputs: %s", utils.check_dependence(transform_params, inputs))
-
             transform_split, _ = self._coupling_transform_forward(inputs=transform_split, transform_params=transform_params)
-            # logger.debug("transform_split depends on inputs: %s", utils.check_dependence(transform_split, inputs))
-            # logger.debug("Jacobian: %s", utils.calculate_jacobian(transform_split, inputs))
-            # logger.debug("Batch Jacobian: %s", utils.batch_jacobian(transform_split, inputs))
-
-            # timer.timer(start="Jacobian coupling transform")
-
             jacobian_transform = various.batch_jacobian(transform_split, inputs)
-
-            # if self.unconditional_transform is not None:
-            #     # identity_split, jacobian_identity = self.unconditional_transform(identity_split, context)
-            #     raise NotImplementedError()
-            # else:
-            #     jacobian_identity = torch.eye(self.num_identity_features).unsqueeze(0)  # (1, n, n)
-            #     logger.debug("Identity Jacobian: %s", jacobian_identity[0])
 
             # Put together full Jacobian
             batchsize = inputs.size(0)
@@ -126,9 +110,6 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
             outputs[:, self.identity_features, ...] = identity_split
             outputs[:, self.transform_features, ...] = transform_split
 
-            # logger.debug("Jacobian from coupling layer (identity features = %s): \n %s", self.identity_features, jacobian[0])
-            # timer.timer(stop="Jacobian coupling transform")
-
             return outputs, jacobian
 
         else:
@@ -136,32 +117,17 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
 
             transform_split, logabsdet = self._coupling_transform_forward(inputs=transform_split, transform_params=transform_params)
 
-            # if self.unconditional_transform is not None:
-            #     identity_split, logabsdet_identity = self.unconditional_transform(identity_split, context)
-            #     logabsdet += logabsdet_identity
-
             outputs = torch.empty_like(inputs)
             outputs[:, self.identity_features, ...] = identity_split
             outputs[:, self.transform_features, ...] = transform_split
-
-            # # debugging
-            # check_inputs, _ = self.inverse(outputs, context=context)
-            # diff = torch.sum((check_inputs - inputs)**2, dim=1)
-            # if torch.max(diff > 0.1):
-            #     logger.debug("Coupling trf inversion imprecise!")
-            #
-            #     inputs_ = inputs[diff > 0.1]
-            #     outputs_ = self.forward(inputs_, context=context)
-
             return outputs, logabsdet
 
-    @torch.jit.export
     def inverse(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
-        if inputs.dim() not in [2, 4]:
-            raise ValueError("Inputs must be a 2D or a 4D tensor.")
+        # if inputs.dim() not in [2, 4]:
+        #     raise ValueError("Inputs must be a 2D or a 4D tensor.")
 
-        if inputs.shape[1] != self.features:
-            raise ValueError("Expected features = {}, got {}.".format(self.features, inputs.shape[1]))
+        # if inputs.shape[1] != self.features:
+        #     raise ValueError("Expected features = {}, got {}.".format(self.features, inputs.shape[1]))
 
         identity_split = inputs[:, self.identity_features, ...]
         transform_split = inputs[:, self.transform_features, ...]
@@ -219,12 +185,13 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
         return self._coupling_transform(inputs, transform_params, inverse=True, full_jacobian=full_jacobian)
 
     def _coupling_transform(self, inputs: torch.Tensor, transform_params: torch.Tensor, inverse: bool=False, full_jacobian: bool=False)->Tuple[torch.Tensor, torch.Tensor]:
-        if inputs.dim() == 4:
-            b, c, h, w = inputs.shape
-            # For images, reshape transform_params from Bx(C*?)xHxW to BxCxHxWx?
-            transform_params = transform_params.reshape(b, c, -1, h, w).permute(0, 1, 3, 4, 2)
-        elif inputs.dim() == 2:
-            b, d = inputs.shape
+        # if inputs.dim() == 4:
+        #     b, c, h, w = inputs.shape
+        #     # For images, reshape transform_params from Bx(C*?)xHxW to BxCxHxWx?
+        #     transform_params = transform_params.reshape(b, c, -1, h, w).permute(0, 1, 3, 4, 2)
+        # elif inputs.dim() == 2:
+        if True:
+            b, d = inputs.size(0), inputs.size(1)
             # For 2D data, reshape transform_params from Bx(D*?) to BxDx?
             transform_params = transform_params.reshape(b, d, -1)
 
@@ -252,7 +219,7 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
         if self.tails is None:
             # spline_fn = splines.rational_quadratic_spline
             # spline_kwargs = {}
-            return splines.rational_quadratic_spline(
+            return rational_quadratic_spline(
                                                     inputs=inputs,
                                                     unnormalized_widths=unnormalized_widths,
                                                     unnormalized_heights=unnormalized_heights,
@@ -267,7 +234,7 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
         else:
             # spline_fn = splines.unconstrained_rational_quadratic_spline
             # spline_kwargs = {"tails": self.tails, "tail_bound": self.tail_bound}
-            return splines.unconstrained_rational_quadratic_spline(
+            return unconstrained_rational_quadratic_spline(
                                                                     inputs=inputs,
                                                                     unnormalized_widths=unnormalized_widths,
                                                                     unnormalized_heights=unnormalized_heights,

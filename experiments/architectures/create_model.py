@@ -1,6 +1,5 @@
 import logging
 from .vector_transforms import create_vector_transform
-from manifold_flow import transforms
 # from manifold_flow.flows import Flow, EncoderManifoldFlow, VariableDimensionManifoldFlow, ManifoldFlow, ProbabilisticAutoEncoder
 from manifold_flow.flows import ManifoldFlow
 

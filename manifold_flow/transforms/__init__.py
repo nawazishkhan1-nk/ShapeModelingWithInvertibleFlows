@@ -47,7 +47,6 @@ from .coupling import (
 from .standard import IdentityTransform, AffineScalarTransform
 
 from .reshape import SqueezeTransform, ReshapeTransform
-from .conv import OneByOneConvolution
 
 from .elementwise import ElementwisePiecewiseRationalQuadraticTransform, ConditionalAffineScalarTransform
 from .projections import Projection, ProjectionSplit

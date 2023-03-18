@@ -7,7 +7,7 @@ scripts_dir="scripts-final"
 
 
 expt_num=1
-dataset="pancreas"
+dataset="pancreas-test-jit"
 
 
 config_path="$expt_num-$dataset.config"
@@ -16,7 +16,7 @@ config_path="$expt_num-$dataset.config"
 python -u train.py -c $scripts_dir/$config_path
 
 # # evaluate only
-# python -u train.py -c $scripts_dir/$config_path --eval_model
+python -u train.py -c $scripts_dir/$config_path --eval_model
 
 # Serialize Model only
 python -u train.py -c $scripts_dir/$config_path --serialize_model
