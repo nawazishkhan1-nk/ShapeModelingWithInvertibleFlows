@@ -354,54 +354,6 @@ def create_alternating_binary_mask(features: int, even: bool=True)-> torch.Tenso
     return mask
 
 
-def create_mid_split_binary_mask(features):
-    """
-    Creates a binary mask of a given dimension which splits its masking at the midpoint.
-
-    :param features: Dimension of mask.
-    :return: Binary mask split at midpoint of type torch.Tensor
-    """
-    mask = torch.zeros(features).byte()
-    midpoint = features // 2 if features % 2 == 0 else features // 2 + 1
-    mask[:midpoint] += 1
-    return mask
-
-
-def create_random_binary_mask(features):
-    """
-    Creates a random binary mask of a given dimension with half of its entries
-    randomly set to 1s.
-
-    :param features: Dimension of mask.
-    :return: Binary mask with half of its entries set to 1s, of type torch.Tensor.
-    """
-    mask = torch.zeros(features).byte()
-    weights = torch.ones(features).float()
-    num_samples = features // 2 if features % 2 == 0 else features // 2 + 1
-    indices = torch.multinomial(input=weights, num_samples=num_samples, replacement=False)
-    mask[indices] += 1
-    return mask
-
-
-def create_mlt_channel_mask(features, channels_per_level=(1, 2, 4, 8), resolution=64):
-    mask = torch.zeros(features).byte()
-
-    pos = 0
-    total_size = features
-    res = resolution
-
-    for channels in channels_per_level:
-        total_size = total_size // 2
-        res = res // 2
-        active = channels * res * res
-        mask[pos : pos + active] += 1
-        pos += total_size
-
-    assert pos <= features
-
-    return mask
-
-
 def searchsorted(bin_locations: torch.Tensor, inputs: torch.Tensor, eps: float=1e-6):
     bin_locations[..., -1] += eps
     return torch.sum(inputs[..., None] >= bin_locations, dim=-1) - 1

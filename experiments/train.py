@@ -552,25 +552,44 @@ if __name__ == "__main__":
         os.makedirs(eval_results_dir, exist_ok=True)
         torch.set_default_tensor_type("torch.cuda.FloatTensor")
         model.to(eval_dev)
+        model.double()
         model.eval()
 
         train_loader, val_loader = create_dataloader(dataset, args.validationsplit, args.batchsize)
         x = torch.zeros(1, 1)
         for i_batch, batch_data in enumerate(val_loader):
-            x = batch_data[0].to(eval_dev, torch.float)
+            x = batch_data[0].to(eval_dev, torch.double)
             x = x[0].reshape(1, -1)
-            # x.requires_grad_(True)
+            x.requires_grad_(True)
             print(f' input vector shape {x.shape} device = {x.get_device()}')
-            x_recon, log_prob, u = model(x, mode="mf-fixed-manifold")
-            print(f' Reconstructed vector shape {x_recon.shape} | log_prob shape {log_prob.shape} | u shape {u.shape}')
-            break
+            # x_recon, log_prob, u = model(x, mode="mf-fixed-manifold")
+            # print(f' Reconstructed vector shape {x_recon.shape} | log_prob shape {log_prob.shape} | u shape {u.shape}')
+            # break
 
         print("OK")
+        x = x.double()
+        x.requires_grad_(True)
+
         tracing_inputs = {"forward_pass_complete": x}
         # tracing_inputs = {"compute_log_prob": x}
         sm = torch.jit.trace_module(model, tracing_inputs)
+        sm.double()
         logger.info(f'******************** Serialize Module Done ************************')
         serialized_model_path = f"{eval_results_dir}/serialized_model.pt"
         torch.jit.save(sm, serialized_model_path)
         logger.info(f'******************** Serialized Module saved ************************')
         logger.info("Serialization done! Have a nice day!")
+        logger.info("Verifying Serialized module")
+
+        # smod = torch.jit.load(serialized_model_path, map_location=eval_dev)
+        # smod.to(eval_dev)
+        # smod.eval()
+
+        # logger.info("normal pass")
+        # # a, b, c, d, e = smod(x)
+        # # logger.info("normal pass done")
+
+        # a, b, c, d, e = smod._get_method("forward_pass_complete")(x)
+        # logger.info("Forward pass done")
+
+

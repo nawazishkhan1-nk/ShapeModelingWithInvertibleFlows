@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source activate new_env3
+source activate shapeworks
 export OMP_NUM_THREADS=1
 cd "/home/sci/nawazish.khan/ShapeModelingWithInvertibleFlows/experiments/"
 scripts_dir="v2-scripts-final"
