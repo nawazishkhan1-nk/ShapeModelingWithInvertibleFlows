@@ -6,7 +6,7 @@ cd "/home/sci/nawazish.khan/ShapeModelingWithInvertibleFlows/experiments/"
 scripts_dir="v2-scripts-final"
 
 
-expt_num=1
+expt_num=2
 dataset="pancreas"
 
 

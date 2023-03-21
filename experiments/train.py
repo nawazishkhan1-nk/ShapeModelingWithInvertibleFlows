@@ -556,19 +556,30 @@ if __name__ == "__main__":
         model.eval()
 
         train_loader, val_loader = create_dataloader(dataset, args.validationsplit, args.batchsize)
-        x = torch.zeros(1, 1)
-        for i_batch, batch_data in enumerate(val_loader):
-            x = batch_data[0].to(eval_dev, torch.double)
-            x = x[0].reshape(1, -1)
-            x.requires_grad_(True)
-            print(f' input vector shape {x.shape} device = {x.get_device()}')
-            # x_recon, log_prob, u = model(x, mode="mf-fixed-manifold")
-            # print(f' Reconstructed vector shape {x_recon.shape} | log_prob shape {log_prob.shape} | u shape {u.shape}')
-            # break
+        # x = torch.zeros(1, 1)
+        # for i_batch, batch_data in enumerate(val_loader):
+        #     x = batch_data[0].to(eval_dev, torch.double)
+        #     # x = x[0].reshape(1, -1)
+        #     x.requires_grad_(True)
+        #     print(f' input vector shape {x.shape} device = {x.get_device()}')
+        #     # x_recon, log_prob, u = model(x, mode="mf-fixed-manifold")
+        #     # print(f' Reconstructed vector shape {x_recon.shape} | log_prob shape {log_prob.shape} | u shape {u.shape}')
+        #     # break
 
-        print("OK")
+        x_ar = []
+        # for i_batch, batch_data in enumerate(train_loader):
+        #     x_batch = batch_data[0]
+        #     x_ar.append(x_batch)
+        for i_batch, batch_data in enumerate(val_loader):
+            x_batch = batch_data[0]
+            x_ar.append(x_batch)
+        x = torch.vstack(x_ar)
+        x = x.to(eval_dev, torch.double)
         x = x.double()
         x.requires_grad_(True)
+        x_recon, log_prob, u = model(x, mode="mf-fixed-manifold")
+        print(f"OK x shape is {x.shape}")
+
 
         tracing_inputs = {"forward_pass_complete": x}
         # tracing_inputs = {"compute_log_prob": x}
