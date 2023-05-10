@@ -35,7 +35,7 @@ class KDLeftLayer(nn.Module):
     """ Custom KDLeftLayer"""
     def __init__(self, input_dims, target_feature_dim, activation_string='Identity'):
         super(KDLeftLayer, self).__init__()
-        self.n = n
+        # self.n = n
         self.activation_string = activation_string
         self.activation =  getattr(nn, self.activation_string)()  
 
@@ -68,7 +68,7 @@ class KDLeftLayer(nn.Module):
                                                   self.weights),dims=[0, 2, 1]) + self.bias)
 
 def factorize_matrix_size(features):
-    power = (np.log2(feature))
+    power = (np.log2(features))
     dim1 = np.floor(power/2)
     dim2 = np.ceil(power - dim1)
     return dim1, dim2
@@ -135,7 +135,7 @@ class ResidualBlock(nn.Module):
             temps = self.batch_norm_layers[0](temps)
         temps = self.activation(temps)
         # temps = self.linear_layers[0](temps)
-        
+        temps = temps.reshape((-1, 3))
         temps = self.Kronecker_module[0](temps)
 
         if self.use_batch_norm:
@@ -148,7 +148,7 @@ class ResidualBlock(nn.Module):
 
         # there is no nn.reshape module, so manually reshape before using second Kronecker layer
         temps = temps.reshape((-1,self.features_dim1,self.features_dim2))
-        temps = self.Kronecker_module[0](temps)
+        temps = self.Kronecker_module[1](temps)
 
         # if context is not None:
         #     temps = F.glu(torch.cat((temps, self.context_layer(context)), dim=1), dim=1)
