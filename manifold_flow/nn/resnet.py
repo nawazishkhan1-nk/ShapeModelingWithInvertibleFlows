@@ -71,7 +71,7 @@ def factorize_matrix_size(features):
     power = (np.log2(features))
     dim1 = np.floor(power/2)
     dim2 = np.ceil(power - dim1)
-    return dim1, dim2
+    return int(dim1), int(dim2)
 
 class ResidualBlock(nn.Module):
     """A general-purpose residual block. Works only with 1-dim inputs."""
@@ -106,9 +106,11 @@ class ResidualBlock(nn.Module):
         Therefore add flatten: 1 x (feature_dim1*featured_dim2)
 
         '''
-        self.Kronecker_layer1 = nn.Sequential([KDRightLayer(input_dims=[1024,3],target_feature_dim=self.features_dim1),\
+        # module_list = []
+        self.Kronecker_layer1 = nn.Sequential(KDRightLayer(input_dims=[1024,3],target_feature_dim=self.features_dim1),\
                                                KDLeftLayer(input_dims=[1024,self.features_dim1], target_feature_dim=self.features_dim2),\
-                                               nn.Flatten()])
+                                               nn.Flatten())
+
 
         '''
         Input of second layer: feature_dim1 x feature_dim2
@@ -118,9 +120,9 @@ class ResidualBlock(nn.Module):
 
         '''
 
-        self.Kronecker_layer2 = nn.Sequential([KDRightLayer(input_dims=[self.features_dim1,self.features_dim2],target_feature_dim=self.features_dim1),\
+        self.Kronecker_layer2 = nn.Sequential(KDRightLayer(input_dims=[self.features_dim1,self.features_dim2],target_feature_dim=self.features_dim1),\
                                                KDLeftLayer(input_dims=[self.features_dim1,self.features_dim1], target_feature_dim=self.features_dim2),\
-                                               nn.Flatten()])
+                                               nn.Flatten())
         
         self.Kronecker_module = nn.ModuleList([self.Kronecker_layer1,self.Kronecker_layer2])
 
