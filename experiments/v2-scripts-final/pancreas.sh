@@ -19,4 +19,4 @@ python -u train.py -c $scripts_dir/$config_path
 # python -u train.py -c $scripts_dir/$config_path --serialize_model
 
 # # evaluate only
-# python -u train.py -c $scripts_dir/$config_path --eval_model
+python -u train.py -c $scripts_dir/$config_path --eval_model
