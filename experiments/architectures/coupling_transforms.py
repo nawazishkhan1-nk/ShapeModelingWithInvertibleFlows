@@ -60,7 +60,7 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
 
         in_features_for_transform_net = len(self.identity_features)
         out_features_for_transorm_net = len(self.transform_features) * self._transform_dim_multiplier()
-        print(f"In features = {in_features_for_transform_net} | Out features = {out_features_for_transorm_net} | hidden features = {hidden_features}")
+        # print(f"In features = {in_features_for_transform_net} | Out features = {out_features_for_transorm_net} | hidden features = {hidden_features}")
         self.transform_net = nn_.ResidualNet(
                                             in_features=in_features_for_transform_net,
                                             out_features=out_features_for_transorm_net,

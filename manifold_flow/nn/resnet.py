@@ -8,14 +8,14 @@ from manifold_flow.utils import various
 
 class KDRightLayer(nn.Module):
     """ Custom KDRightLayer"""
-    def __init__(self, input_dims, target_feature_dim, activation_string='Identity'):
+    def __init__(self, input_dims, out_dims, activation_string='Identity', zero_initialization=False):
         super().__init__()
         
         self.activation_string = activation_string
         self.activation = getattr(nn, self.activation_string)()  
 
         self.input_dims = input_dims
-        self.target_feature_dim = target_feature_dim
+        self.out_dims = out_dims
         '''
         Operation: XW + B
         X = input : m x n
@@ -23,55 +23,60 @@ class KDRightLayer(nn.Module):
         B = bias: m x target
         Output: m x target
         '''
-        weights = torch.rand((self.input_dims[1], self.target_feature_dim))
-        self.weights = nn.Parameter(weights, requires_grad=True)  
-        bias = torch.rand((self.input_dims[0], self.target_feature_dim ))
+        assert self.input_dims[1] == self.out_dims[0]
+        weights = torch.rand(self.out_dims)
+        self.weights = nn.Parameter(weights, requires_grad=True)
+
+        if zero_initialization:
+            stdv = 1e-3
+        else:
+            stdv = 1 / (math.sqrt(self.out_dims[1]))
+        self.weights.data.uniform_(-stdv, stdv)
+        bias = torch.rand((self.input_dims[0], self.out_dims[1]))
+
         self.bias = nn.Parameter(bias, requires_grad=True)
+        self.bias.data.uniform_(-stdv, stdv)
+
 
     def forward(self, inputs):
-        print(f"inputs shape in KDRight is = {inputs.shape}")
-        bs = inputs.shape[-1]
-        inputs = inputs.reshape(-1, self.input_dims[0], self.input_dims[1])
-        print(f"inputs shape in KDRight after reshape is = {inputs.shape}")
         return self.activation(torch.matmul(inputs, self.weights) + self.bias)
 
 class KDLeftLayer(nn.Module):
     """ Custom KDLeftLayer"""
-    def __init__(self, input_dims, target_feature_dim, activation_string='Identity'):
+    def __init__(self, input_dims, out_dims, activation_string='Identity', zero_initialization=False):
         super(KDLeftLayer, self).__init__()
         # self.n = n
         self.activation_string = activation_string
         self.activation =  getattr(nn, self.activation_string)()  
 
         self.input_dims = input_dims
-        self.target_feature_dim = target_feature_dim
-
-
+        self.out_dims = out_dims
         '''
         Operation: WX but not possible directly
         Modified Operation: (X^t W^t)^t + B
         X = input: m x n, X^t: m x n
-        W = weight: target x n, W^t: n x target
-        (X^t W^t): m x target 
-        (X^t W^t)^t: target x m
-        B = Bias: target x m 
+                 = i1 X i2, X^T = i2 X i1
+        W = weight: o1 X o2
+        (X^t W^t):
+        (X^t W^t)^t: 
+             = o1 X o2
+        B = Bias: 
+                = o1 X o2 
         '''
+        weights = torch.rand(( self.out_dims[1], self.out_dims[0]))
+        self.weights = nn.Parameter(weights, requires_grad=True) # transposed here --> # o2 X o1
+        if zero_initialization:
+            stdv = 1e-3
+        else:
+            stdv = 1 / (math.sqrt(self.out_dims[1]))
+        self.weights.data.uniform_(-stdv, stdv)
 
-        '''
-        In order to avoid to transposing the weight matrix in the forward call,
-        we will initilize the transposed weight matrix W
-        '''
-        weights = torch.rand(( self.input_dims[1], self.target_feature_dim))
-        self.weights = nn.Parameter(weights, requires_grad=True) 
-
-        bias = torch.rand((self.target_feature_dim, self.input_dims[0] ))
+        bias = torch.rand(self.out_dims) 
         self.bias = nn.Parameter(bias, requires_grad=True)
+        self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, inputs):
-        print(f"inputs shape in KDLeft is = {inputs.shape}")
-        bs = inputs.shape[-1]
-        inputs = inputs.reshape(-1, self.input_dims[0], self.input_dims[1])
-        print(f"inputs shape in KDLeft After reshape is = {inputs.shape}")
+        print(f"shapes KDR| input = {inputs.shape} | IN_DIMS = {self.input_dims} | out_dims = {self.out_dims}")
         return self.activation(torch.permute(torch.matmul(torch.permute(inputs,dims=[0, 2, 1]),
                                                   self.weights),dims=[0, 2, 1]) + self.bias)
 
@@ -114,15 +119,17 @@ class ResidualBlock(nn.Module):
         # else:
         #     self.context_layer = torch.zeros(features, features)
 
-        self.features_dim1, self.features_dim2 = nearest_root_factors(features)
-        print(f"$$$$$$ features1 = {self.features_dim1} features2 = {self.features_dim2}")
+        self.input_dim1, self.input_dim2 = nearest_root_factors(features)
+        self.out_dim1, self.out_dim2 = nearest_root_factors(features)
 
-        self.Kronecker_layer1 = nn.Sequential(KDRightLayer(input_dims=[self.features_dim1,self.features_dim2],target_feature_dim=self.features_dim1),\
-                                               KDLeftLayer(input_dims=[self.features_dim2,self.features_dim1], target_feature_dim=self.features_dim2),\
+        # print(f"$$$$$$ features1 = {self.features_dim1} features2 = {self.features_dim2}")
+
+        self.Kronecker_layer1 = nn.Sequential(KDLeftLayer(input_dims=[self.input_dim1,self.input_dim2], out_dims=[self.out_dim1, self.input_dim1],),
+                                              KDRightLayer(input_dims=[self.out_dim1,self.input_dim1],out_dims=[self.input_dim1, self.out_dim2]),
                                                nn.Flatten())
 
-        self.Kronecker_layer2 = nn.Sequential(KDRightLayer(input_dims=[self.features_dim2,self.features_dim1],target_feature_dim=self.features_dim1),\
-                                               KDLeftLayer(input_dims=[self.features_dim1,self.features_dim1], target_feature_dim=self.features_dim2),\
+        self.Kronecker_layer2 = nn.Sequential(KDLeftLayer(input_dims=[self.out_dim1,self.out_dim2], out_dims=[self.out_dim1, self.out_dim1], zero_initialization=True),
+                                            KDRightLayer(input_dims=[self.out_dim1,self.out_dim1], out_dims=[self.out_dim1, self.out_dim2], zero_initialization=True),
                                                nn.Flatten())
         
         self.Kronecker_module = nn.ModuleList([self.Kronecker_layer1,self.Kronecker_layer2])
@@ -137,22 +144,15 @@ class ResidualBlock(nn.Module):
         if self.use_batch_norm:
             temps = self.batch_norm_layers[0](temps)
         temps = self.activation(temps)
-        # temps = self.linear_layers[0](temps)
-        # temps = temps.reshape((-1, 3))
+        temps = temps.reshape(-1, self.input_dim1, self.input_dim2)
         temps = self.Kronecker_module[0](temps)
-
         if self.use_batch_norm:
             temps = self.batch_norm_layers[1](temps)
         temps = self.activation(temps)
         temps = self.dropout(temps)
-        
-        # temps = self.linear_layers[1](temps)
-        
-
         # there is no nn.reshape module, so manually reshape before using second Kronecker layer
-        temps = temps.reshape((-1,self.features_dim1,self.features_dim2))
+        temps = temps.reshape((-1,self.out_dim1,self.out_dim2))
         temps = self.Kronecker_module[1](temps)
-
         # if context is not None:
         #     temps = F.glu(torch.cat((temps, self.context_layer(context)), dim=1), dim=1)
         return inputs + temps
@@ -168,7 +168,7 @@ class ResidualNet(nn.Module):
             self.initial_layer = nn.Linear(in_features + context_features, hidden_features)
         else:
             self.initial_layer = nn.Linear(in_features, hidden_features)
-        print(f"$$$$$$ hidden features = {hidden_features} $$$$$$$$$")
+        # print(f"$$$$$$ hidden features = {hidden_features} $$$$$$$$$")
         self.blocks = nn.ModuleList(
             [
                 ResidualBlock(
@@ -177,9 +177,12 @@ class ResidualNet(nn.Module):
                 for _ in range(num_blocks)
             ]
         )
+        self.i1, self.i2 = nearest_root_factors(hidden_features)
+        o1, o2 = nearest_root_factors(out_features)
+        print(f"out_features = {out_features} = {o1} X {o2}")
+        print(f"hidden_features = {hidden_features} = {self.i1} X {self.i2}")
 
-        f1, f2 = nearest_root_factors(out_features)
-        self.final_layer = nn.Sequential(KDRightLayer(input_dims=[10, 10], target_feature_dim=f1), KDLeftLayer(input_dims=[10, f1], target_feature_dim=f2), nn.Flatten())
+        self.final_layer = nn.Sequential(KDLeftLayer(input_dims=[self.i1, self.i2], out_dims=[o1, self.i1]), KDRightLayer(input_dims=[o1, self.i1], out_dims=[self.i1, o2]), nn.Flatten())
         # self.final_layer = nn.Linear(hidden_features, out_features)
 
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None)->torch.Tensor:
@@ -189,6 +192,8 @@ class ResidualNet(nn.Module):
             temps = self.initial_layer(torch.cat((inputs, context), dim=1))
         for block in self.blocks:
             temps = block(temps, context=context)
+        print(f"temps shape before reshape = {temps.shape}")
+        temps = temps.reshape(-1, self.i1, self.i2)
         outputs = self.final_layer(temps)
         return outputs
 
