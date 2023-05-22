@@ -370,12 +370,24 @@ def run_evaluation(model, dataset, device, eval_results_dir, args):
     recon_dir = f"{eval_results_dir}/inputs_and_reconstructions/"
     os.makedirs(recon_dir, exist_ok=True)
     generalization_errors = []
+
+    def ft_functional_jacobian_computation(params, x: torch.Tensor)-> torch.Tensor:
+        h = FT.functional_call(model.outer_transform, params, x)
+        return h
+    
+    def ft_jacobian_computation(x: torch.Tensor):
+        inputs = (dict(model.outer_transform.named_parameters()), x)
+        print(f"using vmap | {len(inputs)}")
+        grad_weights = FT.grad(ft_functional_jacobian_computation, argnums=(0, 1), has_aux=True)(dict(model.outer_transform.named_parameters()), x)
+        print(f"only grads done | {grad_weights.shape}")
+  
+    
     for i_batch, batch_data in enumerate(val_loader):
         x = batch_data[0].to(device, torch.float)
         print(f' input vector shape {x.shape} device = {x.get_device()}')
         x_recon, log_prob, u = model(x, mode="mf-fixed-manifold")
         print(f"fwd done | {x.shape}")
-        jac, hess = ft_jacobian_computation(model, x)
+        jac, hess = ft_jacobian_computation(x)
         print(f"Input shape = {input.shape} | jac = {jac.shape} | hess = {hess.shape}")
         break
         print(f' Reconstructed vector shape {x_recon.shape} | log_prob shape {log_prob.shape} | u shape {u.shape}')

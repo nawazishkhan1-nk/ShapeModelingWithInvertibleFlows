@@ -5,6 +5,7 @@ from torch import nn
 import math
 from torch.autograd import grad
 from torch.func import grad, hessian, vmap
+import torch.func as FT
 
 from manifold_flow.utils import various
 from manifold_flow.utils.various import product, shapes_to_tensor
@@ -560,17 +561,19 @@ class ManifoldFlow(nn.Module):
         h, log_det_outer = self.outer_transform(x, full_jacobian=False, context=None)
         h_manifold, h_orthogonal = self.projection(h)
         return h_manifold
-    
-    def jacobian_computation(self, x: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor]:
-
-        inputs = (self, x)
+            
+    # def jacobian_computation(self, x: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor]:
+    def jacobian_computation(self, x: torch.Tensor):
+        inputs = (dict(self.outer_transform.named_parameters()), x)
         print(f"using vmap | {len(inputs)}")
-        grad_weight_per_sample = vmap(grad(self.forward_pass_outer, argnums=(0, 1)), in_dims=(None, 0))(*inputs)
-        hessian_weight_per_sample = vmap(hessian(self.forward_pass_outer, argnums=(0, 1)), in_dims=(None, 0))(*inputs)
+        grad_weights = FT.grad(self.ft_functional_jacobian_computation)(self, dict(self.outer_transform.named_parameters()), x)
+        print(f"only grads done | {grad_weights.shape}")
+        # grad_weight_per_sample = FT.vmap(FT.grad(self.ft_functional_jacobian_computation), in_dims=(None, None, 0))(*inputs)
+        # hessian_weight_per_sample = FT.vmap(FT.hessian(self.ft_functional_jacobian_computation), in_dims=(None, None, 0))(*inputs)
         print("Done grad")
-        assert x.shape == grad_weight_per_sample.shape
-        return grad_weight_per_sample, hessian_weight_per_sample
-
+        # assert x.shape == grad_weight_per_sample.shape
+        # return grad_weight_per_sample, hessian_weight_per_sample
+        return grad_weights, None
 
 # # TODO:
 # 1. Test this function
