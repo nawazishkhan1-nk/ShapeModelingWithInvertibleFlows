@@ -29,6 +29,10 @@ class KDRightLayer(nn.Module):
         self.bias = nn.Parameter(bias, requires_grad=True)
 
     def forward(self, inputs):
+        print(f"inputs shape in KDRight is = {inputs.shape}")
+        bs = inputs.shape[-1]
+        inputs = inputs.reshape(-1, self.input_dims[0], self.input_dims[1])
+        print(f"inputs shape in KDRight after reshape is = {inputs.shape}")
         return self.activation(torch.matmul(inputs, self.weights) + self.bias)
 
 class KDLeftLayer(nn.Module):
@@ -64,14 +68,36 @@ class KDLeftLayer(nn.Module):
         self.bias = nn.Parameter(bias, requires_grad=True)
 
     def forward(self, inputs):
+        print(f"inputs shape in KDLeft is = {inputs.shape}")
+        bs = inputs.shape[-1]
+        inputs = inputs.reshape(-1, self.input_dims[0], self.input_dims[1])
+        print(f"inputs shape in KDLeft After reshape is = {inputs.shape}")
         return self.activation(torch.permute(torch.matmul(torch.permute(inputs,dims=[0, 2, 1]),
                                                   self.weights),dims=[0, 2, 1]) + self.bias)
 
-def factorize_matrix_size(features):
-    power = (np.log2(features))
-    dim1 = np.floor(power/2)
-    dim2 = np.ceil(power - dim1)
-    return int(dim1), int(dim2)
+import math
+def factors(number):
+    return [(int(x), int(number / x))  for x in range(int(math.sqrt(number)))[2:] if not number % x][-1]
+
+def nearest_root_factors(n):
+    def isqrt(n):
+        x = n
+        y = (x + 1) // 2
+        while y < x:
+            x = y
+            y = (x + n // x) // 2
+        return x
+    sqrt = isqrt(n)
+    if sqrt * sqrt == n:
+        return int(sqrt), int(sqrt)
+    else:
+        s, t = 0, 0
+        for i in range(sqrt, 0, -1):
+            if n % i == 0:
+                s = i
+                t = n // i
+                break
+        return int(s), int(t)
 
 class ResidualBlock(nn.Module):
     """A general-purpose residual block. Works only with 1-dim inputs."""
@@ -87,49 +113,24 @@ class ResidualBlock(nn.Module):
         #     self.context_layer = nn.Linear(context_features, features)
         # else:
         #     self.context_layer = torch.zeros(features, features)
-        self.linear_layers = nn.ModuleList([nn.Linear(features, features) for _ in range(2)])
 
+        self.features_dim1, self.features_dim2 = nearest_root_factors(features)
+        print(f"$$$$$$ features1 = {self.features_dim1} features2 = {self.features_dim2}")
 
-        # Assume that len of features is 512
-        # factorize feature:
-        self.features_dim1, self.features_dim2 = factorize_matrix_size(features)
-        '''
-        IMPORTANT! We need the input feature size when initializing 
-        For now I am assuming 1024 x 3 
-        '''
-        
-
-        '''
-        Input of first layer: 1024 x 3 
-        Output of right layer (also input of left layer: 1024 x feature_dim1 
-        output of left layer: feature_dim1 x feature_dim 2
-        Therefore add flatten: 1 x (feature_dim1*featured_dim2)
-
-        '''
-        # module_list = []
-        self.Kronecker_layer1 = nn.Sequential(KDRightLayer(input_dims=[1024,3],target_feature_dim=self.features_dim1),\
-                                               KDLeftLayer(input_dims=[1024,self.features_dim1], target_feature_dim=self.features_dim2),\
+        self.Kronecker_layer1 = nn.Sequential(KDRightLayer(input_dims=[self.features_dim1,self.features_dim2],target_feature_dim=self.features_dim1),\
+                                               KDLeftLayer(input_dims=[self.features_dim2,self.features_dim1], target_feature_dim=self.features_dim2),\
                                                nn.Flatten())
 
-
-        '''
-        Input of second layer: feature_dim1 x feature_dim2
-        Output of right layer (also input of left layer: feature_dim1 x feature_dim1 
-        output of left layer: feature_dim1 x feature_dim 2
-        Therefore add flatten: 1 x (feature_dim1*featured_dim2)
-
-        '''
-
-        self.Kronecker_layer2 = nn.Sequential(KDRightLayer(input_dims=[self.features_dim1,self.features_dim2],target_feature_dim=self.features_dim1),\
+        self.Kronecker_layer2 = nn.Sequential(KDRightLayer(input_dims=[self.features_dim2,self.features_dim1],target_feature_dim=self.features_dim1),\
                                                KDLeftLayer(input_dims=[self.features_dim1,self.features_dim1], target_feature_dim=self.features_dim2),\
                                                nn.Flatten())
         
         self.Kronecker_module = nn.ModuleList([self.Kronecker_layer1,self.Kronecker_layer2])
 
         self.dropout = nn.Dropout(p=dropout_probability)
-        if zero_initialization:
-            init.uniform_(self.linear_layers[-1].weight, -1e-3, 1e-3)
-            init.uniform_(self.linear_layers[-1].bias, -1e-3, 1e-3)
+        # if zero_initialization:
+        #     init.uniform_(self.linear_layers[-1].weight, -1e-3, 1e-3)
+        #     init.uniform_(self.linear_layers[-1].bias, -1e-3, 1e-3)
 
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None) -> torch.Tensor:
         temps = inputs
@@ -137,7 +138,7 @@ class ResidualBlock(nn.Module):
             temps = self.batch_norm_layers[0](temps)
         temps = self.activation(temps)
         # temps = self.linear_layers[0](temps)
-        temps = temps.reshape((-1, 3))
+        # temps = temps.reshape((-1, 3))
         temps = self.Kronecker_module[0](temps)
 
         if self.use_batch_norm:
@@ -145,7 +146,7 @@ class ResidualBlock(nn.Module):
         temps = self.activation(temps)
         temps = self.dropout(temps)
         
-        temps = self.linear_layers[1](temps)
+        # temps = self.linear_layers[1](temps)
         
 
         # there is no nn.reshape module, so manually reshape before using second Kronecker layer
@@ -167,6 +168,7 @@ class ResidualNet(nn.Module):
             self.initial_layer = nn.Linear(in_features + context_features, hidden_features)
         else:
             self.initial_layer = nn.Linear(in_features, hidden_features)
+        print(f"$$$$$$ hidden features = {hidden_features} $$$$$$$$$")
         self.blocks = nn.ModuleList(
             [
                 ResidualBlock(
@@ -175,7 +177,10 @@ class ResidualNet(nn.Module):
                 for _ in range(num_blocks)
             ]
         )
-        self.final_layer = nn.Linear(hidden_features, out_features)
+
+        f1, f2 = nearest_root_factors(out_features)
+        self.final_layer = nn.Sequential(KDRightLayer(input_dims=[10, 10], target_feature_dim=f1), KDLeftLayer(input_dims=[10, f1], target_feature_dim=f2), nn.Flatten())
+        # self.final_layer = nn.Linear(hidden_features, out_features)
 
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None)->torch.Tensor:
         if context is None:

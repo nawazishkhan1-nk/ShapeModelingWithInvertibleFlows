@@ -16,7 +16,7 @@ config_path="$expt_num-$dataset.config"
 python -u train.py -c $scripts_dir/$config_path
 
 # Serialize Model only
-python -u train.py -c $scripts_dir/$config_path --serialize_model
+# python -u train.py -c $scripts_dir/$config_path --serialize_model
 
 # # evaluate only
-python -u train.py -c $scripts_dir/$config_path --eval_model
+# python -u train.py -c $scripts_dir/$config_path --eval_model
