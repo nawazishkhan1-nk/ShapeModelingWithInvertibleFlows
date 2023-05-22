@@ -4,6 +4,7 @@ import logging
 from torch import nn
 import math
 from torch.autograd import grad
+from torch.func import grad, hessian, vmap
 
 from manifold_flow.utils import various
 from manifold_flow.utils.various import product, shapes_to_tensor
@@ -34,32 +35,32 @@ def jacobian2(input: torch.Tensor, output: torch.Tensor)-> torch.Tensor:
         J[i, :] = gradient[0]
     return J
 
-def compute_jacobian(inputs: torch.Tensor, output: torch.Tensor)->torch.Tensor:
-        """
-        :param inputs: B X dM 
-        :param output: B X L
-        :return: jacobian: B X L X dM
-        """
-        # assert inputs.requires_grad # TODO: Remove assertion and see its effect on LibTorch module
+# def compute_jacobian(inputs: torch.Tensor, output: torch.Tensor)->torch.Tensor:
+#         """
+#         :param inputs: B X dM 
+#         :param output: B X L
+#         :return: jacobian: B X L X dM
+#         """
+#         # assert inputs.requires_grad # TODO: Remove assertion and see its effect on LibTorch module
 
-        num_classes = various.shapes_to_tensor(output.size())[1]
+#         num_classes = various.shapes_to_tensor(output.size())[1]
 
-        jacobian = torch.zeros(num_classes, *inputs.size())
-        grad_output = torch.zeros(*output.size())
-        if inputs.is_cuda:
-            grad_output = grad_output.cuda()
-            jacobian = jacobian.cuda()
+#         jacobian = torch.zeros(num_classes, *inputs.size())
+#         grad_output = torch.zeros(*output.size())
+#         if inputs.is_cuda:
+#             grad_output = grad_output.cuda()
+#             jacobian = jacobian.cuda()
 
-        for i in range(num_classes):
-            if inputs.grad is not None:
-                inputs.grad.zero_()
-            grad_output.zero_()
-            grad_output[:, i] = 1
-            output.backward(grad_output, retain_graph=True)
-            jacobian[i] = inputs.grad.data
+#         for i in range(num_classes):
+#             if inputs.grad is not None:
+#                 inputs.grad.zero_()
+#             grad_output.zero_()
+#             grad_output[:, i] = 1
+#             output.backward(grad_output, retain_graph=True)
+#             jacobian[i] = inputs.grad.data
 
-        jac = torch.transpose(jacobian, dim0=0, dim1=1)
-        return jac
+#         jac = torch.transpose(jacobian, dim0=0, dim1=1)
+#         return jac
 
 
 # Jit Compatible Distributions
@@ -553,3 +554,24 @@ class ManifoldFlow(nn.Module):
         log_prob_net, log_prob_u, log_det_g, log_det_j = self.compute_log_prob_(u, h_orthogonal, log_det_inner, log_det_outer)
         
         return log_prob_net, log_prob_u, log_det_g, log_det_j
+    
+    def forward_pass_outer(self, x: torch.Tensor)-> torch.Tensor:
+        # Encode
+        h, log_det_outer = self.outer_transform(x, full_jacobian=False, context=None)
+        h_manifold, h_orthogonal = self.projection(h)
+        return h_manifold
+    
+    def jacobian_computation(self, x: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor]:
+
+        inputs = (self, x)
+        print(f"using vmap | {len(inputs)}")
+        grad_weight_per_sample = vmap(grad(self.forward_pass_outer, argnums=(0, 1)), in_dims=(None, 0))(*inputs)
+        hessian_weight_per_sample = vmap(hessian(self.forward_pass_outer, argnums=(0, 1)), in_dims=(None, 0))(*inputs)
+        print("Done grad")
+        assert x.shape == grad_weight_per_sample.shape
+        return grad_weight_per_sample, hessian_weight_per_sample
+
+
+# # TODO:
+# 1. Test this function
+# 2. Serialize

@@ -52,7 +52,7 @@ class AlternatingTrainer(BaseTrainer):
         """ Start training. """
 
         # Set up
-        loss_function_trainers = np.array(loss_function_trainers, dtype=np.int)
+        loss_function_trainers = np.array(loss_function_trainers, dtype=np.int_)
         if trainer_order is None:
             trainer_order = list(range(len(self.trainers)))
         if loss_labels is None:

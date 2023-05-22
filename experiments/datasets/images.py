@@ -277,10 +277,10 @@ class IMDBLoader(BaseImageLoader):
 
     def evaluate_log_prior(self, parameters):
         parameters = self.preprocess_params(parameters, inverse=True)
-        parameters = np.around(parameters, 0).astype(np.int)
+        parameters = np.around(parameters, 0).astype(np.int_)
 
         min_, max_ = np.min(self._AGES), np.max(self._AGES)
-        idx = np.clip(parameters - min_, 0, max_ - min_).astype(np.int)
+        idx = np.clip(parameters - min_, 0, max_ - min_).astype(np.int_)
         probs = np.where(parameters < min_, 0, np.where(parameters > max_, 0, self._AGE_PROBS[idx]))
         return np.log(probs)
 

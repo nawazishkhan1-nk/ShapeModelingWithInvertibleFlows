@@ -14,6 +14,9 @@ import os
 import shutil
 import seaborn as sns
 from sklearn.decomposition import PCA
+import torch.func as FT
+from typing import Tuple
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -343,6 +346,16 @@ def train_model(args, dataset, model, simulator):
 #     for _, submodel in model._modules.items():
 #         fix_act_norm_issue(submodel)
 
+
+def ft_jacobian_computation(model, x: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor]:
+        # inputs = (self, x)
+        # print(f"using vmap | {len(inputs)}")
+        grad_weight_per_sample = FT.vmap(FT.grad(model.forward_pass_outer), in_dims=0)(x)
+        hessian_weight_per_sample = FT.vmap(FT.hessian(model.forward_pass_outer), in_dims=0)(x)
+        print("Done grad")
+        assert x.shape == grad_weight_per_sample.shape
+        return grad_weight_per_sample, hessian_weight_per_sample
+
 def run_evaluation(model, dataset, device, eval_results_dir, args):
     train_loader, val_loader = create_dataloader(dataset, args.validationsplit, args.batchsize)
     model.to(device)
@@ -361,6 +374,10 @@ def run_evaluation(model, dataset, device, eval_results_dir, args):
         x = batch_data[0].to(device, torch.float)
         print(f' input vector shape {x.shape} device = {x.get_device()}')
         x_recon, log_prob, u = model(x, mode="mf-fixed-manifold")
+        print(f"fwd done | {x.shape}")
+        jac, hess = ft_jacobian_computation(model, x)
+        print(f"Input shape = {input.shape} | jac = {jac.shape} | hess = {hess.shape}")
+        break
         print(f' Reconstructed vector shape {x_recon.shape} | log_prob shape {log_prob.shape} | u shape {u.shape}')
         gen = torch.linalg.norm((x_recon-x)).item()
         generalization_errors.append(gen)
