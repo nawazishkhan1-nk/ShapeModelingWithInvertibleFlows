@@ -39,7 +39,7 @@ def _apply_transforms_for_householder(inputs: torch.Tensor, q_vectors: torch.Ten
         return outputs, logabsdet
 
 def _permute(inputs: torch.Tensor, permutation: torch.Tensor, dim:int = -1, full_jacobian: bool=False)-> Tuple[torch.Tensor, torch.Tensor]:
-        print(f"Inputs shape{inputs.shape}")
+        # print(f"Inputs shape{inputs.shape}")
         if dim >= inputs.dim():
             raise ValueError("No dimension {} in inputs.".format(dim))
         if inputs.shape[dim] != len(permutation):

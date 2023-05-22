@@ -50,7 +50,7 @@ class PiecewiseRationalQuadraticCouplingTransform(nn.Module):
         #     raise ValueError("Mask can't be empty.")
 
         self.features = len(mask)
-        print(f"Features size is | {self.features}")
+        # print(f"Features size is | {self.features}")
         features_vector = torch.arange(self.features)
 
         self.register_buffer("identity_features", features_vector.masked_select(mask <= 0))

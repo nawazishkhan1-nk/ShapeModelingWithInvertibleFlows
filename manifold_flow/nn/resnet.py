@@ -76,7 +76,7 @@ class KDLeftLayer(nn.Module):
         self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, inputs):
-        print(f"shapes KDR| input = {inputs.shape} | IN_DIMS = {self.input_dims} | out_dims = {self.out_dims}")
+        # print(f"shapes KDR| input = {inputs.shape} | IN_DIMS = {self.input_dims} | out_dims = {self.out_dims}")
         return self.activation(torch.permute(torch.matmul(torch.permute(inputs,dims=[0, 2, 1]),
                                                   self.weights),dims=[0, 2, 1]) + self.bias)
 
@@ -179,8 +179,8 @@ class ResidualNet(nn.Module):
         )
         self.i1, self.i2 = nearest_root_factors(hidden_features)
         o1, o2 = nearest_root_factors(out_features)
-        print(f"out_features = {out_features} = {o1} X {o2}")
-        print(f"hidden_features = {hidden_features} = {self.i1} X {self.i2}")
+        # print(f"out_features = {out_features} = {o1} X {o2}")
+        # print(f"hidden_features = {hidden_features} = {self.i1} X {self.i2}")
 
         self.final_layer = nn.Sequential(KDLeftLayer(input_dims=[self.i1, self.i2], out_dims=[o1, self.i1]), KDRightLayer(input_dims=[o1, self.i1], out_dims=[self.i1, o2]), nn.Flatten())
         # self.final_layer = nn.Linear(hidden_features, out_features)
@@ -192,7 +192,7 @@ class ResidualNet(nn.Module):
             temps = self.initial_layer(torch.cat((inputs, context), dim=1))
         for block in self.blocks:
             temps = block(temps, context=context)
-        print(f"temps shape before reshape = {temps.shape}")
+        # print(f"temps shape before reshape = {temps.shape}")
         temps = temps.reshape(-1, self.i1, self.i2)
         outputs = self.final_layer(temps)
         return outputs
