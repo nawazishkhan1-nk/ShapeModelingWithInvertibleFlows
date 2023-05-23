@@ -27,15 +27,15 @@ class KDRightLayer(nn.Module):
         weights = torch.rand(self.out_dims)
         self.weights = nn.Parameter(weights, requires_grad=True)
 
-        if zero_initialization:
-            stdv = 1e-3
-        else:
-            stdv = 1 / (math.sqrt(self.out_dims[1]))
-        self.weights.data.uniform_(-stdv, stdv)
+        # if zero_initialization:
+        #     stdv = 1e-3
+        # else:
+        #     stdv = 1 / (math.sqrt(self.out_dims[1]))
+        # self.weights.data.uniform_(-stdv, stdv)
         bias = torch.rand((self.input_dims[0], self.out_dims[1]))
 
         self.bias = nn.Parameter(bias, requires_grad=True)
-        self.bias.data.uniform_(-stdv, stdv)
+        # self.bias.data.uniform_(-stdv, stdv)
 
 
     def forward(self, inputs):
@@ -65,15 +65,15 @@ class KDLeftLayer(nn.Module):
         '''
         weights = torch.rand(( self.out_dims[1], self.out_dims[0]))
         self.weights = nn.Parameter(weights, requires_grad=True) # transposed here --> # o2 X o1
-        if zero_initialization:
-            stdv = 1e-3
-        else:
-            stdv = 1 / (math.sqrt(self.out_dims[1]))
-        self.weights.data.uniform_(-stdv, stdv)
+        # if zero_initialization:
+        #     stdv = 1e-3
+        # else:
+        #     stdv = 1 / (math.sqrt(self.out_dims[1]))
+        # self.weights.data.uniform_(-stdv, stdv)
 
         bias = torch.rand(self.out_dims) 
         self.bias = nn.Parameter(bias, requires_grad=True)
-        self.bias.data.uniform_(-stdv, stdv)
+        # self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, inputs):
         # print(f"shapes KDR| input = {inputs.shape} | IN_DIMS = {self.input_dims} | out_dims = {self.out_dims}")
