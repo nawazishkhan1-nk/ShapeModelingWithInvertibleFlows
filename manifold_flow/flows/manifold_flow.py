@@ -561,9 +561,12 @@ class ManifoldFlow(nn.Module):
         h, log_det_outer = self.outer_transform(x, full_jacobian=False, context=None)
         h_manifold, h_orthogonal = self.projection(h)
         return h_manifold
+    
+    def jacobian_computation(self, x: torch.Tensor)-> torch.Tensor:
+        
             
     # def jacobian_computation(self, x: torch.Tensor)-> Tuple[torch.Tensor, torch.Tensor]:
-    def jacobian_computation(self, x: torch.Tensor):
+    def jacobian_computation_old(self, x: torch.Tensor):
         inputs = (dict(self.outer_transform.named_parameters()), x)
         print(f"using vmap | {len(inputs)}")
         grad_weights = FT.grad(self.ft_functional_jacobian_computation)(self, dict(self.outer_transform.named_parameters()), x)
