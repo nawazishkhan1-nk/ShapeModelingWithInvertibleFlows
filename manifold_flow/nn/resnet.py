@@ -24,18 +24,22 @@ class KDRightLayer(nn.Module):
         Output: m x target
         '''
         assert self.input_dims[1] == self.out_dims[0]
-        weights = torch.rand(self.out_dims)
+        weights = torch.Tensor(self.out_dims[0], self.out_dims[1])
         self.weights = nn.Parameter(weights, requires_grad=True)
+        torch.nn.init.xavier_uniform_(self.weights)
 
-        if zero_initialization:
-            stdv = 1e-3
-        else:
-            stdv = 1 / (math.sqrt(self.out_dims[1]))
-        self.weights.data.uniform_(-stdv, stdv)
-        bias = torch.rand((self.input_dims[0], self.out_dims[1]))
 
+        # if zero_initialization:
+        #     stdv = 1e-3
+        # else:
+        #     stdv = 1 / (math.sqrt(self.out_dims[1]))
+        # self.weights.data.uniform_(-stdv, stdv)
+        bias = torch.Tensor(self.input_dims[0], self.out_dims[1])
         self.bias = nn.Parameter(bias, requires_grad=True)
-        self.bias.data.uniform_(-stdv, stdv)
+        torch.nn.init.zeros_(self.bias)
+
+
+        # self.bias.data.uniform_(-stdv, stdv)
 
 
     def forward(self, inputs):
@@ -63,17 +67,20 @@ class KDLeftLayer(nn.Module):
         B = Bias: 
                 = o1 X o2 
         '''
-        weights = torch.rand(( self.out_dims[1], self.out_dims[0]))
+        weights = torch.Tensor(self.out_dims[1], self.out_dims[0])
         self.weights = nn.Parameter(weights, requires_grad=True) # transposed here --> # o2 X o1
-        if zero_initialization:
-            stdv = 1e-3
-        else:
-            stdv = 1 / (math.sqrt(self.out_dims[1]))
-        self.weights.data.uniform_(-stdv, stdv)
+        # if zero_initialization:
+        #     stdv = 1e-3
+        # else:
+        #     stdv = 1 / (math.sqrt(self.out_dims[1]))
+        # self.weights.data.uniform_(-stdv, stdv)
+        torch.nn.init.xavier_uniform_(self.weights)
 
-        bias = torch.rand(self.out_dims) 
+        bias = torch.Tensor(self.out_dims[0], self.out_dims[1]) 
         self.bias = nn.Parameter(bias, requires_grad=True)
-        self.bias.data.uniform_(-stdv, stdv)
+        # self.bias.data.uniform_(-stdv, stdv)
+        torch.nn.init.zeros_(self.bias)
+
 
     def forward(self, inputs):
         # print(f"shapes KDR| input = {inputs.shape} | IN_DIMS = {self.input_dims} | out_dims = {self.out_dims}")
