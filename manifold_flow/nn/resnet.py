@@ -141,6 +141,17 @@ class ResidualBlock(nn.Module):
         
         self.Kronecker_module = nn.ModuleList([self.Kronecker_layer1,self.Kronecker_layer2])
 
+
+        self.Kronecker_layer1_r2 = nn.Sequential(KDLeftLayer(input_dims=[self.input_dim1,self.input_dim2], out_dims=[self.out_dim1, self.input_dim1],),
+                                              KDRightLayer(input_dims=[self.out_dim1,self.input_dim1],out_dims=[self.input_dim1, self.out_dim2]),
+                                               nn.Flatten())
+
+        self.Kronecker_layer2_r2 = nn.Sequential(KDLeftLayer(input_dims=[self.out_dim1,self.out_dim2], out_dims=[self.out_dim1, self.out_dim1], zero_initialization=True),
+                                            KDRightLayer(input_dims=[self.out_dim1,self.out_dim1], out_dims=[self.out_dim1, self.out_dim2], zero_initialization=True),
+                                               nn.Flatten())
+        
+        self.Kronecker_module_r2 = nn.ModuleList([self.Kronecker_layer1_r2,self.Kronecker_layer2_r2])
+
         self.dropout = nn.Dropout(p=dropout_probability)
         # if zero_initialization:
         #     init.uniform_(self.linear_layers[-1].weight, -1e-3, 1e-3)
@@ -151,15 +162,26 @@ class ResidualBlock(nn.Module):
         if self.use_batch_norm:
             temps = self.batch_norm_layers[0](temps)
         temps = self.activation(temps)
-        temps = temps.reshape(-1, self.input_dim1, self.input_dim2)
-        temps = self.Kronecker_module[0](temps)
+        temps_input = temps.reshape(-1, self.input_dim1, self.input_dim2)
+        # Rank 1 
+        temps_r1 = self.Kronecker_module[0](temps_input)
+        # Rank 2
+        temps_r2 = self.Kronecker_module_r2[0](temps_input)
+        # Add the outputs of two ranks 
+        temps = torch.add(temps_r1,temps_r2)
+
         if self.use_batch_norm:
             temps = self.batch_norm_layers[1](temps)
         temps = self.activation(temps)
         temps = self.dropout(temps)
         # there is no nn.reshape module, so manually reshape before using second Kronecker layer
-        temps = temps.reshape((-1,self.out_dim1,self.out_dim2))
-        temps = self.Kronecker_module[1](temps)
+        temps_input = temps.reshape((-1,self.out_dim1,self.out_dim2))
+        # Rank 1
+        temps_r1 = self.Kronecker_module[1](temps_input)
+        # Rank 2 
+        temps_r2 = self.Kronecker_module_r2[1](temps_input)
+        # Add the outputs of two ranks 
+        temps = torch.add(temps_r1, temps_r2)
         # if context is not None:
         #     temps = F.glu(torch.cat((temps, self.context_layer(context)), dim=1), dim=1)
         return inputs + temps
@@ -189,7 +211,12 @@ class ResidualNet(nn.Module):
         # print(f"out_features = {out_features} = {o1} X {o2}")
         # print(f"hidden_features = {hidden_features} = {self.i1} X {self.i2}")
 
-        self.final_layer = nn.Sequential(KDLeftLayer(input_dims=[self.i1, self.i2], out_dims=[o1, self.i1]), KDRightLayer(input_dims=[o1, self.i1], out_dims=[self.i1, o2]), nn.Flatten())
+        self.final_layer = nn.Sequential(KDLeftLayer(input_dims=[self.i1, self.i2], out_dims=[o1, self.i1]),\
+                                         KDRightLayer(input_dims=[o1, self.i1], out_dims=[self.i1, o2]),\
+                                         nn.Flatten())
+        self.final_layer_r2 = nn.Sequential(KDLeftLayer(input_dims=[self.i1, self.i2], out_dims=[o1, self.i1]),\
+                                         KDRightLayer(input_dims=[o1, self.i1], out_dims=[self.i1, o2]),\
+                                         nn.Flatten())
         # self.final_layer = nn.Linear(hidden_features, out_features)
 
     def forward(self, inputs: torch.Tensor, context: Optional[torch.Tensor]=None)->torch.Tensor:
@@ -201,6 +228,8 @@ class ResidualNet(nn.Module):
             temps = block(temps, context=context)
         # print(f"temps shape before reshape = {temps.shape}")
         temps = temps.reshape(-1, self.i1, self.i2)
-        outputs = self.final_layer(temps)
+        outputs_r1 = self.final_layer(temps)
+        outputs_r2 = self.final_layer_r2(temps)
+        outputs = torch.add(outputs_r1, outputs_r2)
         return outputs
 
