@@ -1,8 +1,8 @@
 #!/bin/bash
 
-source activate new_env3
+# source activate nonlinear
 export OMP_NUM_THREADS=1
-cd "/home/sci/nawazish.khan/ShapeModelingWithInvertibleFlows/experiments/"
+cd "/home/sci/iyerkrithika/ShapeWorks_new/ShapeModelingWithInvertibleFlows/experiments/"
 scripts_dir="v2-scripts-final"
 
 
@@ -10,10 +10,10 @@ expt_num=2
 dataset="pancreas"
 
 
-config_path="$expt_num-$dataset.config"
+config_path="$expt_num-$dataset-new.config"
 
-# train and evaluate
-# python -u train.py -c $scripts_dir/$config_path
+# train 
+python -u train.py -c $scripts_dir/$config_path
 
 # Serialize Model only
 # python -u train.py -c $scripts_dir/$config_path --serialize_model
