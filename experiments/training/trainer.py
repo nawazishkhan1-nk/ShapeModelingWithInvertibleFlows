@@ -64,7 +64,8 @@ class BaseTrainer(object):
             best_epoch = i_epoch
 
         if early_stopping_patience is not None and i_epoch - best_epoch > early_stopping_patience >= 0:
-            raise EarlyStoppingException
+            # raise EarlyStoppingException
+            print("Skipping early stop")
 
         return best_loss, best_model, best_epoch
 
