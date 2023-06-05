@@ -370,6 +370,10 @@ def run_evaluation(model, dataset, device, eval_results_dir, args):
         np.save(f"{recon_dir}/log_prob_batch_{i_batch}.npy", log_prob.detach().cpu().numpy())
         np.save(f"{recon_dir}/u_batch_{i_batch}.npy", u.detach().cpu().numpy())
 
+    SCALE_FACTOR = args.scalefactor
+    assert SCALE_FACTOR > 0
+    plot_reconstructions( SCALE_FACTOR * x_recon, f"{eval_results_dir}/recon_samples/")
+    plot_reconstructions( SCALE_FACTOR * x, f"{eval_results_dir}/orignal/")
 
     gen_val = np.mean(np.array(generalization_errors))
     print(f"mean gen = {gen_val}")
@@ -379,8 +383,7 @@ def run_evaluation(model, dataset, device, eval_results_dir, args):
     samples = model.sample(n=100, sample_orthogonal=False)
     samples_ = model.sample(n=100, sample_orthogonal=True)
     # SCALE_FACTOR = 399.18096923828125
-    SCALE_FACTOR = args.scalefactor
-    assert SCALE_FACTOR > 0
+    
     plot_reconstructions( SCALE_FACTOR * samples, f"{eval_results_dir}/without_orthogonal/")
     plot_reconstructions( SCALE_FACTOR * samples_, f"{eval_results_dir}/with_orthogonal/")
 
@@ -402,7 +405,7 @@ def run_evaluation(model, dataset, device, eval_results_dir, args):
     for i in range(100):
         x_sampled = samples[i][None, ...]
         x_sampled = x_sampled.repeat_interleave(N, dim=0)
-        errors = torch.mean(torch.sqrt((x_all - x_sampled)**2), dim=0)
+        errors = torch.mean(torch.sqrt((x_all.to(device, torch.float) - x_sampled.to(device, torch.float))**2), dim=0)
         spec = torch.min(errors).item()
         print(f' SPEC without orthogonal = {spec}')
         specificity_errors.append(spec)
@@ -412,7 +415,7 @@ def run_evaluation(model, dataset, device, eval_results_dir, args):
     for i in range(100):
         x_sampled = samples_[i][None, ...]
         x_sampled = x_sampled.repeat_interleave(N, dim=0)
-        errors = torch.mean(torch.sqrt((x_all - x_sampled)**2), dim=0)
+        errors = torch.mean(torch.sqrt((x_all.to(device, torch.float) - x_sampled.to(device, torch.float))**2), dim=0)
         spec = torch.min(errors).item()
         print(f' SPEC with orthogonal = {spec}')
         specificity_errors_.append(spec)
